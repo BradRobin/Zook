@@ -1,0 +1,18 @@
+
+# log settings
+loglevel: info
+logDestinations: [file]
+logfile: mediamtx.log
+
+# timeout of read operations
+readTimeout: 5s
+writeTimeout: 5s
+writeQueueSize: 512
+udpMaxPayloadSize: 1472
+# the file has been made an executable and it logs all entries 
+runOnConnect: usr/local/bin/connect.sh
+runOnConnectRestart: yes
+runOnDisconnect: usr/local/bin/disconnect.sh
+
+
+authMethod: http
