@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Zook - AI Surveillance</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <!-- Landing Page -->
+    <div id="landing-page" class="page active">
+        <div class="landing-content">
+            <header class="main-header">
+                <h1>Zook</h1>
+                <p class="subtext">Live AI surveillance for safety. Grant cam access to start.</p>
+            </header>
+            
+            <button id="scan-btn" class="scan-button">Scan</button>
+            
+            <footer class="main-footer">
+                <p class="legal">Compliant with Kenya Data Protection Act. Local processing.</p>
+                <p class="philosophy">Building discipline one scan at a time.</p>
+            </footer>
+        </div>
+    </div>
+
+    <!-- Login Modal -->
+    <div id="login-modal" class="modal hidden">
+        <div class="modal-content">
+            <h2>Access Required</h2>
+            <form id="login-form">
+                <div class="form-group">
+                    <label for="username">Username</label>
+                    <input type="text" id="username" name="username" required>
+                </div>
+                <div class="form-group">
+                    <label for="password">Password</label>
+                    <input type="password" id="password" name="password" required>
+                </div>
+                <div class="form-group">
+                    <label class="checkbox-label">
+                        <input type="checkbox" id="consent" name="consent" required>
+                        I consent to local cam processing.
+                    </label>
+                </div>
+                <div class="form-actions">
+                    <button type="submit" class="auth-button">Authenticate</button>
+                    <button type="button" id="cancel-btn" class="cancel-button">Cancel</button>
+                </div>
+            </form>
+            <div id="auth-error" class="error-message hidden"></div>
+        </div>
+    </div>
+
+    <!-- Dashboard View -->
+    <div id="dashboard-page" class="page hidden">
+        <div class="dashboard-container">
+            <!-- Video Feed -->
+            <div class="video-section">
+                <video id="feed" autoplay muted playsinline></video>
+                <div class="video-overlay">
+                    <div class="scan-status">Live Feed Active</div>
+                </div>
+            </div>
+            
+            <!-- Status Panel -->
+            <div class="status-panel">
+                <h3>Detection Log</h3>
+                <div id="status-logs" class="logs">
+                    <div class="log-entry">Scanning... No threats.</div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Bottom Controls -->
+        <div class="bottom-controls">
+            <button id="pause-btn" class="control-button">Pause Scan</button>
+            <button id="settings-btn" class="control-button">Settings</button>
+        </div>
+    </div>
+
+    <!-- Settings Drawer -->
+    <div id="settings-drawer" class="drawer hidden">
+        <div class="drawer-content">
+            <h3>Settings</h3>
+            <div class="setting-group">
+                <label for="alert-email">Alert Email</label>
+                <input type="email" id="alert-email" placeholder="your@email.com">
+            </div>
+            <div class="setting-group">
+                <label class="checkbox-label">
+                    <input type="checkbox" id="detect-knives" checked>
+                    Detect Knives
+                </label>
+            </div>
+            <div class="setting-group">
+                <label class="checkbox-label">
+                    <input type="checkbox" id="detect-guns">
+                    Detect Guns
+                </label>
+            </div>
+            <div class="setting-group">
+                <label class="checkbox-label">
+                    <input type="checkbox" id="detect-weapons">
+                    Detect Other Weapons
+                </label>
+            </div>
+            <button id="close-settings" class="close-button">Close</button>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
