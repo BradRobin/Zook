@@ -1,7 +1,7 @@
 package types
 
-type Auth_details struct {
-	Username string   `json:"user"`
+type Signin struct {
+	Username string   `json:"username"`
 	Password string   `json:"password"`
 	Action   []string `json:"action"`
 	Protocol []string `json:"protocol"`

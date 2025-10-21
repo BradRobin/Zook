@@ -14,5 +14,35 @@ runOnConnect: usr/local/bin/connect.sh
 runOnConnectRestart: yes
 runOnDisconnect: usr/local/bin/disconnect.sh
 
-
+# authentication
 authMethod: http
+authHTTPAddress: http://localhost:8080/api/auth
+authHTTPExclude:
+
+api: yes
+apiAddress: :9997
+# TODO: change this later 
+apiEncryption: no
+apiServerKey: 
+apiServerCert: 
+apiAllowOrigin: 
+apiTrustedProxies: 
+
+webrtc: yes
+webrtcAddress: :8889
+# TODO: change thsi later
+webrtcEncryption: no
+webrtcServerKey: 
+webrtcServerCert: 
+  # this is used to show the where viewers/client can access the stream from 
+webrtcAllowOrigin: 'http://localhost:3500/api/viewstream'
+# this is where stream packets are actually sent through
+webrtcLocalUDPAddress: :8189
+# expand on this further tomorrow
+webrtcLocalTCPAddress: ''
+
+source: publisher
+sourceOnDemand: yes
+sourceOnDemandStartTimeout: 10s
+sourceOnDemandCloseAfter: 10s
+maxReaders: 0
