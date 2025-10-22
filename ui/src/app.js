@@ -7,6 +7,20 @@ class ZookApp {
         this.videoStream = null;
         this.authToken = null;
         
+        // Auto-detect API URL based on environment
+        if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+            this.apiUrl = 'http://localhost:8080';
+        } else {
+            // For remote access, try to get from localStorage or prompt
+            this.apiUrl = localStorage.getItem('zook_api_url') || 
+                         prompt('Please enter your backend ngrok URL (e.g., https://xxxxx.ngrok-free.dev)', 'https://');
+            if (this.apiUrl && this.apiUrl !== 'https://') {
+                localStorage.setItem('zook_api_url', this.apiUrl);
+            }
+        }
+        
+        console.log('Using API URL:', this.apiUrl);
+        
         this.init();
     }
 
@@ -98,16 +112,15 @@ class ZookApp {
         }
 
         try {
-            const response = await fetch('http://localhost:8080/api/auth', {
+            const response = await fetch(`${this.apiUrl}/api/login`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
                 },
                 body: JSON.stringify({
-                    user: username,
+                    username: username,
                     password: password,
-                    action: ['read'],
-                    protocol: ['webrtc']
+                    token: ''
                 })
             });
 
@@ -126,15 +139,22 @@ class ZookApp {
 
         } catch (error) {
             console.error('Auth error:', error);
+            console.error('Error details:', {
+                message: error.message,
+                name: error.name,
+                stack: error.stack
+            });
             
             // Map common errors to user-friendly messages
-            let errorMessage = 'Authentication failed';
+            let errorMessage = 'Authentication failed: ' + error.message;
             if (error.message.includes('Failed to fetch')) {
                 errorMessage = 'Cannot connect to server. Please check if the backend is running.';
             } else if (error.message.includes('HTTP 500')) {
                 errorMessage = 'Server error. Please try again.';
             } else if (error.message.includes('HTTP 400')) {
                 errorMessage = 'Invalid credentials or request format.';
+            } else if (error.message.includes('HTTP 401')) {
+                errorMessage = 'Invalid username or password.';
             }
             
             this.showError(errorMessage);
