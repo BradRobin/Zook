@@ -10,4 +10,6 @@ var (
 	Hashtoolong               = errors.New("the password is too long")
 	Errorgeneratingpass       = errors.New("ther was an in issue in saving your password")
 	Savingusererror           = errors.New("There was an error saving user")
+	Errorsigningtoken         = errors.New("There was an error generating your token")
+	Errorredisstore           = errors.New("there was an issue storing you on the cache")
 )
