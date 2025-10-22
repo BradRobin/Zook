@@ -4,6 +4,7 @@ then i setup the server for mediamtx
 
 user flow
 user first signs (username,password,action,(decided by the device they use)) returning a token
+we will save the device's (protocol)
 then decide what the next action is, is it watching (token,id,path,action,protocol)
 they then hit up mediamtx server which call the auth server to check if the user has logged in 
 start streaming 

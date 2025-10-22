@@ -48,29 +48,28 @@ func Add_user(user types.Signin) (string, error) {
 	}
 	return "successfully saved user", nil
 }
-func Get_user(user types.Logindetails) (string, error) {
+func Get_user(user types.Logindetails) (types.Signin, error) {
 	conn, err := connectionpool()
 	if err != nil {
-
-		return "", fmt.Errorf("There was a server connection", user.Username)
+		return types.Signin{}, fmt.Errorf("There was a server connection %s", user.Username)
 	}
-	var found string
-	query := conn.QueryRow(context.Background(), "select password from streaming.users where username=$1", user.Username)
+	var found types.Signin
+	query := conn.QueryRow(context.Background(), "select * from streaming.users where username=$1", user.Username)
 	err2 := query.Scan(&found)
 	if err2 != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return "", err2
+			return types.Signin{}, err2
 		} else {
 			fmt.Println("error in scanning rows, %w", err2)
-			return "", err2
+			return types.Signin{}, err2
 		}
 	}
 
-	err4 := bcrypt.CompareHashAndPassword([]byte(found), []byte(user.Password))
+	err4 := bcrypt.CompareHashAndPassword([]byte(found.Password), []byte(user.Password))
 	if err4 != nil {
 		fmt.Println("there was an error in encrypting the password")
-		return "", err4
+		return types.Signin{}, err4
 	} else {
-		return "success", nil
+		return found, nil
 	}
 }

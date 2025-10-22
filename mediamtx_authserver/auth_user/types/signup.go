@@ -1,6 +1,7 @@
 package types
 
 type Signin struct {
+	Id       string   `json:"id"`
 	Username string   `json:"username"`
 	Password string   `json:"password"`
 	Action   []string `json:"action"`
