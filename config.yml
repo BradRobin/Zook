@@ -5,4 +5,4 @@ tunnels:
     addr: 3500
   backend:
     proto: http
-    addr: 8080
+    addr: 8000

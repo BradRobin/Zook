@@ -6,10 +6,11 @@ class ZookApp {
         this.detectionInterval = null;
         this.videoStream = null;
         this.authToken = null;
+        this.sessionId = null;
         
         // Auto-detect API URL based on environment
         if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
-            this.apiUrl = 'http://localhost:8080';
+            this.apiUrl = 'http://localhost:8000';
         } else {
             // For remote access, try to get from localStorage or prompt
             this.apiUrl = localStorage.getItem('zook_api_url') || 
@@ -67,11 +68,34 @@ class ZookApp {
         });
     }
 
-    checkStoredAuth() {
+    async checkStoredAuth() {
         const token = localStorage.getItem('zook_auth_token');
-        if (token) {
-            this.authToken = token;
-            this.showDashboard();
+        const sessionId = localStorage.getItem('zook_session_id');
+        
+        if (token && sessionId) {
+            // Verify token is still valid
+            try {
+                const response = await fetch(`${this.apiUrl}/api/verify`, {
+                    method: 'GET',
+                    headers: {
+                        'Authorization': `Bearer ${token}`
+                    }
+                });
+                
+                if (response.ok) {
+                    this.authToken = token;
+                    this.sessionId = sessionId;
+                    this.showDashboard();
+                } else {
+                    // Token expired or invalid, clear storage
+                    localStorage.removeItem('zook_auth_token');
+                    localStorage.removeItem('zook_session_id');
+                }
+            } catch (error) {
+                console.error('Token verification failed:', error);
+                localStorage.removeItem('zook_auth_token');
+                localStorage.removeItem('zook_session_id');
+            }
         }
     }
 
@@ -94,6 +118,16 @@ class ZookApp {
 
     hideError() {
         document.getElementById('auth-error').classList.add('hidden');
+    }
+
+    getAuthHeaders() {
+        /**
+         * Get headers with JWT authorization for authenticated requests.
+         */
+        return {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${this.authToken}`
+        };
     }
 
     async handleAuth() {
@@ -119,41 +153,40 @@ class ZookApp {
                 },
                 body: JSON.stringify({
                     username: username,
-                    password: password,
-                    token: ''
+                    password: password
                 })
             });
 
             if (!response.ok) {
-                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                const errorData = await response.json().catch(() => ({}));
+                throw new Error(errorData.detail || `HTTP ${response.status}: ${response.statusText}`);
             }
 
-            const result = await response.text();
+            const data = await response.json();
             
-            // Store the success message as pseudo-token for MVP
-            this.authToken = result;
+            // Store JWT token and session_id
+            this.authToken = data.access_token;
+            this.sessionId = data.session_id;
             localStorage.setItem('zook_auth_token', this.authToken);
+            localStorage.setItem('zook_session_id', this.sessionId);
+            
+            console.log('Login successful:', data.username);
             
             this.hideLoginModal();
             this.showDashboard();
 
         } catch (error) {
             console.error('Auth error:', error);
-            console.error('Error details:', {
-                message: error.message,
-                name: error.name,
-                stack: error.stack
-            });
             
             // Map common errors to user-friendly messages
             let errorMessage = 'Authentication failed: ' + error.message;
             if (error.message.includes('Failed to fetch')) {
-                errorMessage = 'Cannot connect to server. Please check if the backend is running.';
-            } else if (error.message.includes('HTTP 500')) {
+                errorMessage = 'Cannot connect to server. Please check if the backend is running on port 8000.';
+            } else if (error.message.includes('HTTP 500') || error.message.includes('500')) {
                 errorMessage = 'Server error. Please try again.';
-            } else if (error.message.includes('HTTP 400')) {
+            } else if (error.message.includes('HTTP 400') || error.message.includes('400')) {
                 errorMessage = 'Invalid credentials or request format.';
-            } else if (error.message.includes('HTTP 401')) {
+            } else if (error.message.includes('HTTP 401') || error.message.includes('401') || error.message.includes('Invalid username')) {
                 errorMessage = 'Invalid username or password.';
             }
             
@@ -239,15 +272,32 @@ class ZookApp {
             // Convert to blob for API call
             const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.8));
             
-            // Simulate API call to detection endpoint
+            // Simulate API call to detection endpoint with JWT auth
             const formData = new FormData();
             formData.append('image', blob, 'frame.jpg');
 
             try {
                 const response = await fetch('http://localhost:8000/detect', {
                     method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${this.authToken}`
+                    },
                     body: formData
                 });
+
+                if (response.status === 401) {
+                    // Token expired, logout user
+                    console.log('Token expired, logging out');
+                    this.addLogEntry('Session expired. Please login again.', 'error');
+                    localStorage.removeItem('zook_auth_token');
+                    localStorage.removeItem('zook_session_id');
+                    this.stopScanning();
+                    // Optionally redirect to login
+                    setTimeout(() => {
+                        location.reload();
+                    }, 2000);
+                    return;
+                }
 
                 if (response.ok) {
                     const result = await response.json();

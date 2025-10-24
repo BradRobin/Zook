@@ -62,16 +62,16 @@ Transform communities into safer spaces where crime, violence, and abuse fade as
 │                                                                   │
 │  ┌─────────────────┐      ┌──────────────────┐                  │
 │  │   Web Browser   │─────▶│  Auth Server     │                  │
-│  │  (Frontend UI)  │◀─────│  (Port 8080)     │                  │
-│  │                 │      │  Go HTTP Server  │                  │
+│  │  (Frontend UI)  │◀─────│  (Port 8000)     │                  │
+│  │                 │      │ FastAPI/Python   │                  │
 │  │  - HTML/CSS/JS  │      └──────────────────┘                  │
 │  │  - Camera Feed  │               │                            │
 │  │  - Detection UI │               │                            │
 │  └─────────────────┘               ▼                            │
 │          │                  ┌──────────────────┐                │
-│          │                  │  In-Memory DB    │                │
-│          │                  │  (Production:    │                │
-│          │                  │   PostgreSQL)    │                │
+│          │                  │   PostgreSQL     │                │
+│          │                  │  (with sessions  │                │
+│          │                  │   tracking)      │                │
 │          │                  └──────────────────┘                │
 │          │                                                       │
 │          │                  ┌──────────────────┐                │
@@ -112,13 +112,15 @@ Transform communities into safer spaces where crime, violence, and abuse fade as
   - `localStorage` for client-side auth token storage
 
 ### Backend
-- **Go 1.25.3**: High-performance HTTP server
-- **Standard Library**: `net/http` for routing and server
+- **Python 3.11+**: Modern async/await support
+- **FastAPI**: High-performance web framework with auto-generated docs
 - **Dependencies**:
-  - `golang.org/x/crypto/bcrypt`: Password hashing
-  - `github.com/golang-jwt/jwt/v5`: JWT token generation (planned)
-  - `github.com/jackc/pgx/v5`: PostgreSQL driver (production)
-  - `github.com/redis/go-redis/v9`: Token caching (planned)
+  - `passlib[bcrypt]`: Password hashing (12 rounds)
+  - `python-jose`: JWT token generation and validation
+  - `sqlalchemy`: Async ORM for PostgreSQL
+  - `asyncpg`: Async PostgreSQL driver
+  - `pydantic`: Request/response validation
+  - `uvicorn`: ASGI server
 
 ### Infrastructure
 - **MediaMTX**: WebRTC/RTSP streaming server
@@ -128,162 +130,271 @@ Transform communities into safer spaces where crime, violence, and abuse fade as
 
 ### Development Tools
 - **ngrok**: Remote testing tunnels (config in `config.yml`)
-- **Go Modules**: Dependency management
+- **pip**: Python package management
 
 ---
 
-## Backend - Authentication Server
+## Backend - FastAPI Authentication Server
+
+> **Migration Note**: The backend was migrated from Go to Python/FastAPI on October 24, 2025. This change provides:
+> - JWT token authentication with proper session management
+> - PostgreSQL integration with async SQLAlchemy
+> - Auto-generated API documentation
+> - Better type safety with Pydantic
+> - Easier integration with AI/ML services (Python ecosystem)
 
 ### Project Structure
 ```
-mediamtx_authserver/
-├── main.go                      # Production server with CORS
-├── simple_server.go             # Testing stub (always returns success)
-├── simple_working_server.go     # Hardcoded test user (Brad/12345678)
-├── authserver.exe              # Compiled binary
-├── go.mod / go.sum             # Dependencies
-│
-├── auth_user/
-│   ├── simple_auth.go          # Token management logic
-│   └── types/
-│       ├── actions.go          # Stream action constants
-│       ├── error.go            # Custom error definitions
-│       ├── login.go            # Login request/response types
-│       ├── protocols.go        # Streaming protocol constants
-│       ├── redistype.go        # Redis cache data structure
-│       ├── request.go          # MediaMTX request validation types
-│       └── signup.go           # User registration types
-│
-└── database/
-    ├── memory_db.go            # In-memory user storage (MVP)
-    └── postgres.sql            # PostgreSQL schema (production)
+backend/
+├── app/
+│   ├── __init__.py
+│   ├── main.py                 # FastAPI app entry point with CORS & middleware
+│   ├── config.py               # Environment configuration (Pydantic settings)
+│   ├── database.py             # SQLAlchemy async setup
+│   ├── models.py               # User & Session SQLAlchemy models
+│   ├── schemas.py              # Pydantic request/response schemas
+│   ├── auth.py                 # JWT utilities (create/decode tokens)
+│   ├── security.py             # Password hashing (bcrypt)
+│   └── routers/
+│       ├── __init__.py
+│       ├── auth_routes.py      # /api/auth (registration), /api/login, /api/verify
+│       └── stream_routes.py    # /api/stream/validate (MediaMTX integration)
+├── migrations/
+│   └── init.sql                # PostgreSQL schema with RLS policies
+├── requirements.txt            # Python dependencies
+├── .env.example                # Environment template
+└── README.md                   # Setup instructions
 ```
 
-### Main Server (`main.go`)
+### FastAPI Server (`app/main.py`)
 
-**Port**: `8080`  
-**Purpose**: Production-ready authentication server with full functionality
+**Port**: `8000`  
+**Purpose**: Production-ready authentication server with JWT, sessions, and stream validation
 
-#### Endpoints
+#### Core Endpoints
 
-##### 1. `GET /` - Health Check
+##### 1. `GET /` - Health Check & Info
 ```http
 GET / HTTP/1.1
-Host: localhost:8080
+Host: localhost:8000
 
 Response:
 {
   "status": "ok",
-  "message": "Zook Auth Server Running"
+  "message": "Zook Auth Server Running",
+  "version": "1.0.0",
+  "environment": "development",
+  "docs": "/docs",
+  "redoc": "/redoc"
 }
 ```
 
 ##### 2. `POST /api/auth` - User Registration
 ```http
 POST /api/auth HTTP/1.1
-Host: localhost:8080
+Host: localhost:8000
 Content-Type: application/json
 
 {
   "username": "john_doe",
-  "password": "securepass123",
-  "action": ["read", "publish"],
-  "protocol": ["webrtc"]
+  "password": "securepass123"
 }
 
-Response (Success):
-"successfully saved user"
+Response (Success - 201):
+{
+  "message": "User registered successfully"
+}
 
 Response (Error):
-HTTP 400: "invalid json data"
-HTTP 500: "user already exists"
+HTTP 400: {"detail": "Username already registered"}
+HTTP 400: {"detail": "Username must be alphanumeric"}
 ```
 
 **Process Flow**:
-1. Decode JSON request body into `types.Signin` struct
-2. Validate user doesn't already exist
-3. Hash password using bcrypt (cost factor: 10)
-4. Store user in database (in-memory or PostgreSQL)
-5. Return success message
+1. Validate request with Pydantic schema (`UserCreate`)
+2. Check username uniqueness in database
+3. Hash password using bcrypt (12 rounds = 4096 iterations)
+4. Create UUID for user
+5. Insert user into PostgreSQL
+6. Return success message
 
-##### 3. `POST /api/login` - User Authentication
+##### 3. `POST /api/login` - User Authentication & Session Creation
 ```http
 POST /api/login HTTP/1.1
-Host: localhost:8080
+Host: localhost:8000
 Content-Type: application/json
 
 {
   "username": "john_doe",
-  "password": "securepass123",
-  "token": ""
+  "password": "securepass123"
 }
 
-Response (Success):
-"successfully logged in"
+Response (Success - 200):
+{
+  "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "token_type": "bearer",
+  "session_id": "550e8400-e29b-41d4-a716-446655440000",
+  "username": "john_doe",
+  "expires_in": 86400
+}
 
 Response (Error):
-HTTP 401: "invalid credentials"
-HTTP 500: "internal server error"
+HTTP 401: {"detail": "Invalid username or password"}
 ```
 
 **Process Flow**:
-1. Decode JSON request body into `types.Logindetails` struct
-2. Query database for user by username
-3. Compare hashed password using bcrypt
-4. Generate and save user token to cache (simplified in MVP)
-5. Return success message
+1. Validate credentials against database
+2. Verify password with bcrypt comparison
+3. Generate JWT token (HS256, 24h expiry) with user_id and username in payload
+4. Create session record with:
+   - Unique session_id
+   - JWT token
+   - Client IP address
+   - User agent string
+   - Expiration timestamp
+5. Update user's last_login timestamp
+6. Return token and session info
 
-#### CORS Configuration
-```go
-Access-Control-Allow-Origin: *
-Access-Control-Allow-Methods: GET, POST, OPTIONS
-Access-Control-Allow-Headers: Content-Type
+##### 4. `GET /api/verify` - Token Verification
+```http
+GET /api/verify HTTP/1.1
+Host: localhost:8000
+Authorization: Bearer <jwt-token>
+
+Response (Success - 200):
+{
+  "id": "550e8400-e29b-41d4-a716-446655440000",
+  "username": "john_doe",
+  "created_at": "2025-10-24T10:30:00Z",
+  "last_login": "2025-10-24T12:15:00Z"
+}
+
+Response (Error):
+HTTP 401: {"detail": "Could not validate credentials"}
 ```
 
-### Alternative Servers
+##### 5. `POST /api/logout` - Session Termination
+```http
+POST /api/logout HTTP/1.1
+Host: localhost:8000
+Authorization: Bearer <jwt-token>
 
-#### `simple_server.go` - Testing Stub
-- **Purpose**: Frontend development without backend logic
-- **Behavior**: Always returns success (no validation)
-- **Use Case**: UI/UX testing, frontend development
-
-#### `simple_working_server.go` - Hardcoded Auth
-- **Purpose**: Quick testing with known credentials
-- **Test User**: `Brad` / `12345678`
-- **Behavior**: String-based credential checking (no encryption)
-
-### Database Layer
-
-#### In-Memory Database (`memory_db.go`)
-
-**Current Implementation**: MVP testing database
-
-```go
-// Global in-memory store
-var users = make(map[string]types.Signin)
-var mu sync.RWMutex  // Thread-safe access
-
-// Default user (initialized on startup)
-Username: "Brad"
-Password: "$2a$10$..." (bcrypt hash of "12345678")
-Action: ["read"]
-Protocol: ["webrtc"]
+Response (Success - 200):
+{
+  "message": "Logged out successfully"
+}
 ```
 
-**Key Functions**:
+##### 6. `POST /api/stream/validate` - MediaMTX Stream Validation
+```http
+POST /api/stream/validate HTTP/1.1
+Host: localhost:8000
+Authorization: Bearer <jwt-token>
+Content-Type: application/json
 
-1. **`Add_user(user types.Signin)`**
-   - Checks for duplicate usernames
-   - Hashes password with bcrypt (cost: 10)
-   - Stores user in memory map
-   - Thread-safe with mutex locks
+{
+  "action": "read",
+  "protocol": "webrtc",
+  "path": "/mystream"
+}
 
-2. **`Get_user(user types.Logindetails)`**
-   - Retrieves user by username
-   - Validates password using bcrypt comparison
-   - Returns full user object on success
+Response (Success - 200):
+{
+  "authorized": true,
+  "user_id": "550e8400-e29b-41d4-a716-446655440000",
+  "username": "john_doe",
+  "message": "Stream access granted"
+}
 
-#### PostgreSQL Schema (`postgres.sql`)
+Response (Unauthorized):
+{
+  "authorized": false,
+  "message": "Invalid or expired session"
+}
+```
+
+**Validation Logic**:
+1. Extract JWT from Authorization header or query param
+2. Verify token is valid and not expired
+3. Check session is active in database
+4. Validate action (publish, read, playback, api, metrics)
+5. Validate protocol (webrtc, rtsp, rtmp, hls, srt)
+6. Return authorization status
+
+#### Security Features
+
+**CORS Configuration**:
+```python
+allow_origins=["http://localhost:3500", "http://localhost:3000"]
+allow_credentials=True
+allow_methods=["*"]
+allow_headers=["*"]
+```
+
+**Middleware**:
+- CORS middleware for cross-origin requests
+- HTTPS redirect in production mode
+- Global exception handler for error logging
+
+### Database Models (`app/models.py`)
+
+**User Model**:
+```python
+class User(Base):
+    id = Column(UUID, primary_key=True, default=uuid.uuid4)
+    username = Column(String(255), unique=True, nullable=False)
+    password_hash = Column(String(255), nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    last_login = Column(DateTime(timezone=True), nullable=True)
+    sessions = relationship("Session", back_populates="user")
+```
+
+**Session Model**:
+```python
+class Session(Base):
+    id = Column(UUID, primary_key=True, default=uuid.uuid4)
+    user_id = Column(UUID, ForeignKey("users.id", ondelete="CASCADE"))
+    session_token = Column(String(500), unique=True, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    expires_at = Column(DateTime(timezone=True), nullable=False)
+    is_active = Column(Boolean, default=True)
+    ip_address = Column(String(45), nullable=True)
+    user_agent = Column(Text, nullable=True)
+    last_activity = Column(DateTime(timezone=True))
+    device_info = Column(Text, nullable=True)
+    user = relationship("User", back_populates="sessions")
+```
+
+### Database Connection (`app/database.py`)
+
+**PostgreSQL with Async SQLAlchemy**:
+```python
+engine = create_async_engine(
+    settings.DATABASE_URL,  # postgresql+asyncpg://...
+    echo=True if settings.ENVIRONMENT == "development" else False,
+    pool_pre_ping=True,
+    pool_size=5,
+    max_overflow=10
+)
+
+AsyncSessionLocal = async_sessionmaker(
+    engine,
+    class_=AsyncSession,
+    expire_on_commit=False
+)
+
+async def get_db():
+    async with AsyncSessionLocal() as session:
+        yield session
+```
+
+**Features**:
+- Async PostgreSQL driver (asyncpg)
+- Connection pooling (5 base, 10 overflow)
+- Automatic session management
+- Dependency injection for routes
+
+#### PostgreSQL Schema (`migrations/init.sql`)
 
 **Production Database Design**:
 ```sql
@@ -600,7 +711,7 @@ showError(message) - Display auth errors
 **Auto-Detection Logic**:
 ```javascript
 if (localhost) {
-  apiUrl = 'http://localhost:8080'
+  apiUrl = 'http://localhost:8000'
 } else {
   apiUrl = localStorage or prompt for ngrok URL
 }
@@ -717,7 +828,7 @@ udpMaxPayloadSize: 1472
 #### Authentication
 ```yaml
 authMethod: http
-authHTTPAddress: http://localhost:8080/api/auth
+authHTTPAddress: http://localhost:8000/api/stream/validate
 authHTTPExclude: []
 ```
 
@@ -754,7 +865,7 @@ maxReaders: 0  # Unlimited viewers
 | Feature | Status | Notes |
 |---------|--------|-------|
 | Config file | ✅ Complete | Ready for use |
-| Auth endpoint | ✅ Configured | Points to `:8080/api/auth` |
+| Auth endpoint | ✅ Configured | Points to `:8000/api/stream/validate` |
 | WebRTC server | 🔄 Pending | Not started yet |
 | Frontend integration | 📋 Planned | Phase 2 feature |
 
@@ -945,15 +1056,21 @@ TTL: 24 hours
 ### ✅ Implemented
 
 #### Backend
-- [x] HTTP server on port 8080
-- [x] CORS middleware
+- [x] FastAPI server on port 8000 with async support
+- [x] CORS middleware with configurable origins
 - [x] User registration endpoint (`/api/auth`)
-- [x] User login endpoint (`/api/login`)
-- [x] Password hashing with bcrypt
-- [x] In-memory database with thread safety
-- [x] Custom error handling
-- [x] Type-safe request/response structures
-- [x] Multiple server variants (production, testing, stub)
+- [x] User login endpoint (`/api/login`) with JWT tokens
+- [x] Token verification endpoint (`/api/verify`)
+- [x] Logout endpoint (`/api/logout`)
+- [x] Stream validation endpoint (`/api/stream/validate`)
+- [x] Password hashing with bcrypt (12 rounds)
+- [x] JWT token generation (HS256, 24h expiry)
+- [x] PostgreSQL database with async SQLAlchemy
+- [x] Session tracking with device information
+- [x] Pydantic request/response validation
+- [x] Auto-generated API documentation (Swagger/ReDoc)
+- [x] Global exception handling
+- [x] HTTPS redirect middleware (production)
 
 #### Frontend
 - [x] Ultra-minimalist UI design
@@ -978,33 +1095,36 @@ TTL: 24 hours
 
 ### 🔄 Partially Implemented
 
+- [x] JWT tokens (fully implemented)
+- [x] Session management (tracking active sessions)
 - [ ] AI detection endpoint integration (code ready, service not deployed)
-- [ ] Token caching (structure defined, Redis not implemented)
-- [ ] JWT token generation (dependency added, not used)
+- [ ] Token refresh mechanism
+- [ ] Redis caching layer
 
 ---
 
 ## Known Limitations
 
 ### Security
-1. **No JWT tokens**: Current implementation uses plain text success messages
-2. **No token expiration**: Sessions persist indefinitely in localStorage
-3. **Weak CORS**: Allows all origins (`*`) - needs restriction
-4. **No HTTPS**: Running on HTTP (insecure for production)
-5. **No rate limiting**: Vulnerable to brute force attacks
+1. ✅ **JWT tokens implemented**: HS256 with 24-hour expiration
+2. ✅ **Session tracking**: Active sessions with expiration timestamps
+3. ✅ **CORS configured**: Specific origins (configurable via environment)
+4. ✅ **HTTPS redirect**: Middleware for production environment
+5. **No rate limiting**: Vulnerable to brute force attacks (TODO)
+6. **No refresh tokens**: Users must re-login after 24 hours (TODO)
 
 ### Functionality
 1. **No real AI detection**: Simulates 10% random threats
 2. **No WebRTC streaming**: MediaMTX configured but not integrated
-3. **In-memory database**: Data lost on server restart
-4. **No password reset**: Users cannot recover accounts
-5. **No session management**: Can't revoke active sessions
-6. **No user roles**: All users have same permissions
+3. **No password reset**: Users cannot recover accounts
+4. **No user roles**: All users have same permissions
+5. **No email notifications**: Alerts not yet implemented
+6. **No multi-factor authentication**: Single-factor login only
 
 ### Scalability
-1. **Single-instance server**: No load balancing
-2. **No horizontal scaling**: In-memory DB prevents distribution
-3. **No caching layer**: Direct database queries
+1. **Single-instance server**: No load balancing (yet)
+2. **No connection pooling limits**: May need tuning for high load
+3. **No Redis caching**: Direct database queries for sessions
 4. **No CDN**: Static assets served from server
 
 ### UX
@@ -1029,22 +1149,32 @@ TTL: 24 hours
 
 #### 1. Backend Server
 ```bash
-# Navigate to auth server directory
-cd mediamtx_authserver
+# Navigate to backend directory
+cd backend
+
+# Create virtual environment (recommended)
+python -m venv venv
+source venv/bin/activate  # Windows: venv\Scripts\activate
 
 # Install dependencies
-go mod download
+pip install -r requirements.txt
 
-# Run the server (choose one)
-go run main.go                      # Production server
-go run simple_server.go             # Testing stub
-go run simple_working_server.go     # Hardcoded test user
+# Create .env file
+cp .env.example .env
+# Edit .env with your configuration
 
-# Or use compiled binary
-./authserver.exe
+# Run database migrations
+psql -U postgres -d zook -f migrations/init.sql
+
+# Run the server
+uvicorn app.main:app --reload --port 8000
+
+# Or using Python directly
+python -m app.main
 ```
 
-**Server will start on**: `http://localhost:8080`
+**Server will start on**: `http://localhost:8000`  
+**API Docs**: `http://localhost:8000/docs`
 
 #### 2. Frontend UI
 ```bash
@@ -1112,7 +1242,7 @@ tunnels:
 **Results**:
 ```
 Frontend: https://abc123.ngrok-free.dev → localhost:3500
-Backend:  https://xyz789.ngrok-free.dev → localhost:8080
+Backend:  https://xyz789.ngrok-free.dev → localhost:8000
 ```
 
 #### Update Frontend API URL
@@ -1127,17 +1257,19 @@ Now you can access the app from any device with the ngrok URLs.
 
 #### Backend
 ```bash
-# Build binary
-go build -o zook-authserver
+# Install dependencies
+pip install -r requirements.txt
 
 # Set environment variables
-export DATABASE_URL="postgresql://user:pass@host:5432/zook"
-export REDIS_URL="redis://localhost:6379"
-export JWT_SECRET="your-secret-key"
-export PORT=8080
+export DATABASE_URL="postgresql+asyncpg://user:pass@host:5432/zook"
+export JWT_SECRET_KEY="your-secret-key-min-32-chars"
+export JWT_ALGORITHM="HS256"
+export ACCESS_TOKEN_EXPIRE_MINUTES="1440"
+export CORS_ORIGINS="https://yourdomain.com"
+export ENVIRONMENT="production"
 
-# Run server
-./zook-authserver
+# Run with Gunicorn + Uvicorn workers
+gunicorn app.main:app -w 4 -k uvicorn.workers.UvicornWorker --bind 0.0.0.0:8000
 ```
 
 #### Frontend
@@ -1232,15 +1364,18 @@ psql -U postgres -d zook
 
 ### Port Assignments
 - **3500**: Frontend UI
-- **8080**: Auth Server (backend)
+- **8000**: Auth Server (backend)
 - **8000**: AI Detection Service (FastAPI)
 - **8889**: MediaMTX WebRTC
 - **8189**: MediaMTX UDP
 - **9997**: MediaMTX API
 
 ### Key Files for Development
-- `mediamtx_authserver/main.go` - Main server logic
-- `mediamtx_authserver/database/memory_db.go` - Database operations
+- `backend/app/main.py` - FastAPI application entry point
+- `backend/app/routers/auth_routes.py` - Authentication endpoints
+- `backend/app/models.py` - Database models
+- `backend/app/auth.py` - JWT utilities
+- `backend/migrations/init.sql` - Database schema
 - `ui/src/app.js` - Frontend application logic
 - `ui/src/style.css` - UI styling
 - `mediamtx.yml` - Streaming server config
@@ -1251,7 +1386,7 @@ psql -U postgres -d zook
 - **Solution**: Ensure HTTPS or localhost, grant browser permissions
 
 **Issue**: Cannot connect to backend
-- **Solution**: Check if server is running on port 8080, verify CORS settings
+- **Solution**: Check if server is running on port 8000, verify CORS settings
 
 **Issue**: Login fails with valid credentials
 - **Solution**: Check console logs, verify database has user, test with Brad/12345678

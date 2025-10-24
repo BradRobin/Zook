@@ -1,9 +1,0 @@
--- create extension if not EXISTS "uuid-ossp";
--- CREATE Table streaming.users (
---     id uuid DEFAULT uuid_generate_v4() PRIMARY KEY,
---     username TEXT not NULL,
---     password TEXT not NULL,
---     protocol TEXT not null,
---     action TEXT[] not NULL
--- );
--- alter table streaming.users ADD COLUMN protocol TEXT[] not null;

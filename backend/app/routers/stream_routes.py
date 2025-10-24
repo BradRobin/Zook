@@ -1,0 +1,98 @@
+"""
+Stream validation routes for MediaMTX integration.
+"""
+from fastapi import APIRouter, Depends, HTTPException, status, Header
+from sqlalchemy.ext.asyncio import AsyncSession
+from typing import Optional
+
+from ..database import get_db
+from ..auth import verify_session, decode_token
+from ..schemas import StreamValidationRequest, StreamValidationResponse
+
+router = APIRouter(prefix="/api/stream", tags=["streaming"])
+
+
+@router.post("/validate", response_model=StreamValidationResponse)
+async def validate_stream_access(
+    stream_request: StreamValidationRequest,
+    authorization: Optional[str] = Header(None),
+    token: Optional[str] = None,  # Query parameter fallback
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Validate stream access for MediaMTX.
+    
+    Called by MediaMTX before allowing publish/read operations.
+    Checks JWT token validity and session status.
+    
+    Token can be provided via:
+    - Authorization header: "Bearer <token>"
+    - Query parameter: ?token=<token>
+    """
+    # Extract token from Authorization header or query param
+    jwt_token = None
+    
+    if authorization and authorization.startswith("Bearer "):
+        jwt_token = authorization.replace("Bearer ", "")
+    elif token:
+        jwt_token = token
+    
+    if not jwt_token:
+        return StreamValidationResponse(
+            authorized=False,
+            message="No authentication token provided"
+        )
+    
+    # Verify session exists and is active
+    session = await verify_session(jwt_token, db)
+    
+    if not session:
+        return StreamValidationResponse(
+            authorized=False,
+            message="Invalid or expired session"
+        )
+    
+    # Decode token to get user info
+    try:
+        token_data = decode_token(jwt_token)
+    except HTTPException:
+        return StreamValidationResponse(
+            authorized=False,
+            message="Invalid token"
+        )
+    
+    # Validate action permissions (basic validation)
+    allowed_actions = ["publish", "read", "playback", "api", "metrics"]
+    if stream_request.action not in allowed_actions:
+        return StreamValidationResponse(
+            authorized=False,
+            user_id=token_data.user_id,
+            username=token_data.username,
+            message=f"Invalid action: {stream_request.action}"
+        )
+    
+    # Validate protocol (basic validation)
+    allowed_protocols = ["webrtc", "rtsp", "rtmp", "hls", "srt"]
+    if stream_request.protocol not in allowed_protocols:
+        return StreamValidationResponse(
+            authorized=False,
+            user_id=token_data.user_id,
+            username=token_data.username,
+            message=f"Invalid protocol: {stream_request.protocol}"
+        )
+    
+    # All checks passed
+    return StreamValidationResponse(
+        authorized=True,
+        user_id=token_data.user_id,
+        username=token_data.username,
+        message="Stream access granted"
+    )
+
+
+@router.get("/health")
+async def stream_health():
+    """Health check endpoint for stream service."""
+    return {"status": "ok", "service": "stream_validation"}
+
+
