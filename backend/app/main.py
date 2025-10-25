@@ -9,7 +9,8 @@ import logging
 
 from .config import settings
 from .database import init_db
-from .routers import auth_routes, stream_routes
+from .routers import auth_routes, stream_routes, detection_routes
+from .services import get_detector
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -20,7 +21,7 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     """
     Application lifespan events.
-    Initialize database on startup.
+    Initialize database and AI detection model on startup.
     """
     logger.info("Starting up Zook Auth Server...")
     logger.info(f"Environment: {settings.ENVIRONMENT}")
@@ -32,6 +33,16 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error(f"Database initialization failed: {e}")
         # Don't crash, allow app to start (manual migration might be needed)
+    
+    # Initialize YOLOv11 detection model
+    try:
+        logger.info("Initializing YOLOv11 threat detection model...")
+        detector = get_detector(confidence_threshold=0.90, device='cpu')
+        logger.info("Detection model initialized and ready")
+        logger.info(f"Model info: {detector.get_model_info()}")
+    except Exception as e:
+        logger.error(f"Detection model initialization failed: {e}")
+        logger.warning("Server will start but detection endpoint may not work")
     
     yield
     
@@ -79,6 +90,7 @@ async def https_redirect_middleware(request: Request, call_next):
 # Include routers
 app.include_router(auth_routes.router)
 app.include_router(stream_routes.router)
+app.include_router(detection_routes.router)
 
 
 # Root endpoint

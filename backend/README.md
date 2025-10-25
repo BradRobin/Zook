@@ -7,6 +7,7 @@ Python/FastAPI-based authentication and session management server for the Zook A
 - **User Registration** (`POST /api/auth`)
 - **User Login** (`POST /api/login`) with JWT tokens
 - **Session Management** - Track active sessions with device information
+- **AI Threat Detection** (`POST /detect`) - YOLOv11-based knife detection
 - **Stream Validation** (`POST /api/stream/validate`) for MediaMTX integration
 - **Token Verification** (`GET /api/verify`)
 - **Secure Password Hashing** - bcrypt with 12 rounds
@@ -146,6 +147,90 @@ Response:
 }
 ```
 
+### AI Threat Detection
+
+#### Detect Threats in Image
+```http
+POST /detect
+Authorization: Bearer <your-jwt-token>
+Content-Type: multipart/form-data
+
+Form Data:
+  image: <JPEG file>
+
+Response (threat detected):
+{
+  "threats": [
+    {
+      "type": "knife",
+      "confidence": 0.95,
+      "bbox": {
+        "x1": 120.5,
+        "y1": 200.3,
+        "x2": 250.8,
+        "y2": 400.1
+      }
+    }
+  ],
+  "processing_time_ms": 25.3
+}
+
+Response (no threat):
+{
+  "threats": [],
+  "processing_time_ms": 18.7
+}
+```
+
+**Detection Specifications:**
+- Model: YOLOv11n (nano variant for speed)
+- Input: JPEG images, automatically resized to 640x640
+- Target class: Knife (COCO class ID 43)
+- Confidence threshold: 90% (0.90)
+- Performance: <30ms per frame on mid-tier GPU, ~100-200ms on CPU
+
+**Testing the Endpoint:**
+```bash
+# Using curl
+curl -X POST "http://localhost:8000/detect" \
+     -H "Authorization: Bearer YOUR_JWT_TOKEN" \
+     -F "image=@tests/sample_images/knife.jpg"
+
+# Using the test script
+python test_detection.py
+```
+
+#### Check Detection Service Health
+```http
+GET /detect/health
+
+Response:
+{
+  "status": "healthy",
+  "service": "threat_detection",
+  "model_info": {
+    "model_type": "pretrained",
+    "device": "cpu",
+    "confidence_threshold": 0.90,
+    "target_classes": ["knife"],
+    "input_size": "640x640",
+    "architecture": "YOLOv11n"
+  }
+}
+```
+
+#### Update Detection Threshold
+```http
+POST /detect/threshold?threshold=0.85
+Authorization: Bearer <your-jwt-token>
+
+Response:
+{
+  "message": "Threshold updated successfully",
+  "new_threshold": 0.85
+}
+```
+
 ### Stream Validation (MediaMTX)
 
 #### Validate Stream Access
@@ -200,6 +285,122 @@ Response:
 6. **Input Validation**: Pydantic schemas for all requests
 7. **SQL Injection Protection**: SQLAlchemy parameterized queries
 
+## YOLOv11 Detection System
+
+### Model Information
+
+The detection system uses **YOLOv11n** (nano variant) from Ultralytics for real-time threat detection:
+
+- **Architecture**: YOLOv11n (lightweight, optimized for speed)
+- **Training Data**: COCO dataset (pretrained model)
+- **Target Class**: Knife (COCO class ID 43)
+- **Input Size**: 640x640 RGB images
+- **Confidence Threshold**: 0.90 (90%)
+- **Performance Target**: <30ms per frame on mid-tier GPU
+
+### Custom Model Training
+
+For improved accuracy on your specific use case, you can train a custom YOLOv11 model:
+
+#### 1. Prepare Dataset
+
+Create a dataset with knife images and annotations in YOLO format:
+
+```
+dataset/
+├── images/
+│   ├── train/
+│   │   ├── img001.jpg
+│   │   ├── img002.jpg
+│   │   └── ...
+│   └── val/
+│       ├── img100.jpg
+│       └── ...
+└── labels/
+    ├── train/
+    │   ├── img001.txt
+    │   ├── img002.txt
+    │   └── ...
+    └── val/
+        ├── img100.txt
+        └── ...
+```
+
+Each label file (`.txt`) contains bounding box annotations:
+```
+0 0.5 0.5 0.3 0.4
+# Format: class_id center_x center_y width height (normalized 0-1)
+```
+
+#### 2. Create Data Configuration
+
+Create `knife_data.yaml`:
+
+```yaml
+path: /path/to/dataset
+train: images/train
+val: images/val
+
+nc: 1  # number of classes
+names: ['knife']
+```
+
+#### 3. Train the Model
+
+```bash
+# Install ultralytics
+pip install ultralytics
+
+# Train YOLOv11n on your dataset
+yolo train data=knife_data.yaml model=yolo11n.pt epochs=100 imgsz=640 batch=16
+
+# For better accuracy (slower training):
+yolo train data=knife_data.yaml model=yolo11s.pt epochs=150 imgsz=640 batch=8
+
+# Monitor training
+tensorboard --logdir runs/detect/train
+```
+
+#### 4. Validate Performance
+
+```bash
+# Validate on test set
+yolo val model=runs/detect/train/weights/best.pt data=knife_data.yaml
+
+# Target metrics:
+# - mAP@0.5: >0.95 (95% mean Average Precision)
+# - Precision: >0.90
+# - Recall: >0.85
+```
+
+#### 5. Deploy Custom Model
+
+```bash
+# Copy trained model to backend
+cp runs/detect/train/weights/best.pt backend/app/models/custom_knife_model.pt
+
+# Restart server (model will be loaded automatically)
+```
+
+The server automatically detects and loads `custom_knife_model.pt` if present in `app/models/` directory.
+
+### Performance Benchmarks
+
+Target performance on different hardware:
+
+| Hardware | Average Latency | Throughput |
+|----------|----------------|------------|
+| RTX 3060 (GPU) | 15-25ms | ~40-60 FPS |
+| GTX 1660 (GPU) | 20-30ms | ~33-50 FPS |
+| CPU (8 cores) | 100-200ms | ~5-10 FPS |
+| Raspberry Pi 4 | 500-1000ms | ~1-2 FPS |
+
+**Optimization Tips:**
+- Use GPU for production (CUDA-enabled)
+- Consider YOLOv11n for speed vs YOLOv11s/m for accuracy
+- Batch processing for multiple cameras (not yet implemented)
+- TensorRT optimization for NVIDIA GPUs (advanced)
+
 ## Project Structure
 
 ```
@@ -209,17 +410,30 @@ backend/
 │   ├── main.py              # FastAPI app entry point
 │   ├── config.py            # Environment configuration
 │   ├── database.py          # Database connection setup
-│   ├── models.py            # SQLAlchemy models
+│   ├── models.py            # SQLAlchemy models (DB)
 │   ├── schemas.py           # Pydantic request/response schemas
 │   ├── auth.py              # JWT utilities
 │   ├── security.py          # Password hashing
+│   ├── models/              # YOLO model storage
+│   │   ├── .gitkeep
+│   │   └── custom_knife_model.pt  # (optional) Custom trained model
+│   ├── services/
+│   │   ├── __init__.py
+│   │   └── detector.py      # YOLOv11 detection service
 │   └── routers/
 │       ├── __init__.py
 │       ├── auth_routes.py   # Authentication endpoints
-│       └── stream_routes.py # Stream validation endpoints
+│       ├── stream_routes.py # Stream validation endpoints
+│       └── detection_routes.py  # Threat detection endpoints
+├── tests/
+│   └── sample_images/       # Test images for validation
+│       └── README.md
 ├── migrations/
 │   └── init.sql             # Database schema
 ├── requirements.txt
+├── test_detection.py        # Detection endpoint test script
+├── Dockerfile
+├── .dockerignore
 ├── .env.example
 └── README.md
 ```
@@ -227,12 +441,29 @@ backend/
 ## Development
 
 ### Running Tests
+
+#### Authentication Tests
 ```bash
 # Install test dependencies
 pip install pytest pytest-asyncio httpx
 
 # Run tests
 pytest
+```
+
+#### Detection Tests
+```bash
+# Test detection endpoint with sample images
+python test_detection.py
+
+# Test specific image
+python test_detection.py --image tests/sample_images/knife.jpg
+
+# Test against remote server
+python test_detection.py --url https://your-server.com
+
+# See all options
+python test_detection.py --help
 ```
 
 ### Code Formatting
@@ -251,13 +482,48 @@ mypy app/
 ## Deployment
 
 ### Docker (Recommended)
-```dockerfile
-FROM python:3.11-slim
-WORKDIR /app
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
-COPY app/ ./app/
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+
+#### Build and Run
+```bash
+# Build Docker image
+cd backend
+docker build -t zook-backend:latest .
+
+# Run container (CPU)
+docker run -d \
+  --name zook-backend \
+  -p 8000:8000 \
+  -e DATABASE_URL="postgresql+asyncpg://postgres:postgres@host.docker.internal:5432/zook" \
+  -e JWT_SECRET_KEY="your-secret-key" \
+  zook-backend:latest
+
+# Run container (with GPU support)
+docker run -d \
+  --name zook-backend \
+  --gpus all \
+  -p 8000:8000 \
+  -e DATABASE_URL="postgresql+asyncpg://postgres:postgres@host.docker.internal:5432/zook" \
+  -e JWT_SECRET_KEY="your-secret-key" \
+  zook-backend:latest
+
+# Check logs
+docker logs -f zook-backend
+
+# Stop container
+docker stop zook-backend
+```
+
+#### Using Custom Model in Docker
+```bash
+# Build with custom model
+docker build -t zook-backend:custom .
+
+# Or mount custom model as volume
+docker run -d \
+  --name zook-backend \
+  -p 8000:8000 \
+  -v /path/to/custom_knife_model.pt:/app/app/models/custom_knife_model.pt \
+  zook-backend:latest
 ```
 
 ### Environment Variables for Production
@@ -282,6 +548,31 @@ CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
 ### CORS Errors
 - Add frontend URL to `CORS_ORIGINS` in `.env`
 - Check browser console for specific CORS error
+
+### Detection Service Issues
+
+#### Model Download Fails
+- Ensure internet connection (first run downloads YOLOv11n ~6MB)
+- Model cached in `~/.cache/ultralytics/`
+- Manually download: `yolo checks`
+
+#### Slow Detection Performance
+- Check device: Look for "Model loaded on device: cpu" in logs
+- For GPU: Install PyTorch with CUDA support
+  ```bash
+  pip install torch torchvision --index-url https://download.pytorch.org/whl/cu118
+  ```
+- Verify GPU: `python -c "import torch; print(torch.cuda.is_available())"`
+
+#### Low Accuracy
+- Default COCO model may not be optimized for your environment
+- Consider training custom model (see Custom Model Training section)
+- Adjust confidence threshold: `POST /detect/threshold?threshold=0.85`
+
+#### Memory Issues
+- YOLOv11n uses ~100-200MB RAM
+- Reduce batch size if processing multiple images
+- Consider model quantization for embedded devices
 
 ## License
 

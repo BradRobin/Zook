@@ -2,7 +2,7 @@
 Pydantic schemas for request/response validation.
 """
 from pydantic import BaseModel, Field, validator
-from typing import Optional
+from typing import Optional, List
 from datetime import datetime
 import uuid
 
@@ -100,5 +100,54 @@ class StreamValidationResponse(BaseModel):
 class MessageResponse(BaseModel):
     """Generic message response."""
     message: str
+
+
+# Detection schemas
+class BoundingBox(BaseModel):
+    """Schema for bounding box coordinates."""
+    x1: float
+    y1: float
+    x2: float
+    y2: float
+
+
+class ThreatDetection(BaseModel):
+    """Schema for a single threat detection."""
+    type: str = Field(..., description="Type of threat detected (e.g., 'knife')")
+    confidence: float = Field(..., ge=0.0, le=1.0, description="Detection confidence score")
+    bbox: Optional[BoundingBox] = Field(None, description="Bounding box coordinates (optional)")
+    
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "type": "knife",
+                "confidence": 0.95,
+                "bbox": {
+                    "x1": 120.5,
+                    "y1": 200.3,
+                    "x2": 250.8,
+                    "y2": 400.1
+                }
+            }
+        }
+
+
+class DetectionResponse(BaseModel):
+    """Schema for detection API response."""
+    threats: List[ThreatDetection] = Field(default_factory=list, description="List of detected threats")
+    processing_time_ms: Optional[float] = Field(None, description="Processing time in milliseconds")
+    
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "threats": [
+                    {
+                        "type": "knife",
+                        "confidence": 0.95
+                    }
+                ],
+                "processing_time_ms": 25.3
+            }
+        }
 
 

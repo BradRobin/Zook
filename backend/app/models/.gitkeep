@@ -1,0 +1,3 @@
+# Directory for custom trained YOLO models
+# Place your custom knife detection model here as: custom_knife_model.pt
+
