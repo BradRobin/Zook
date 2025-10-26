@@ -1,0 +1,55 @@
+# Knife Detection Training Requirements
+# YOLOv11 custom model training dependencies
+
+# Core ML/DL libraries
+ultralytics>=8.3.0          # YOLOv11 implementation
+torch>=2.0.0                # PyTorch
+torchvision>=0.15.0         # PyTorch vision utilities
+
+# Computer vision
+opencv-python-headless>=4.8.0   # OpenCV (headless for server)
+pillow>=10.0.0              # Image processing
+
+# Data processing
+numpy>=1.24.0               # Numerical operations
+pandas>=2.0.0               # Data manipulation
+pyyaml>=6.0                 # YAML configuration files
+
+# Visualization
+matplotlib>=3.7.0           # Plotting
+seaborn>=0.12.0             # Statistical visualization
+
+# ML utilities
+scikit-learn>=1.3.0         # ML metrics and utilities
+scipy>=1.11.0               # Scientific computing
+
+# Dataset management
+roboflow                    # Roboflow API (optional)
+kaggle                      # Kaggle API (optional)
+
+# Jupyter notebooks
+jupyter>=1.0.0              # Jupyter notebook
+ipywidgets>=8.0.0           # Interactive widgets
+
+# Model export
+onnx>=1.14.0                # ONNX export
+onnxruntime>=1.15.0         # ONNX runtime
+
+# Progress bars
+tqdm>=4.65.0                # Progress bars
+
+# HTTP requests (for downloading)
+requests>=2.31.0            # HTTP library
+
+# Optional: TensorBoard for training visualization
+tensorboard>=2.13.0         # TensorBoard
+
+# Optional: Advanced augmentation
+# albumentations>=1.3.0     # Advanced image augmentations
+
+# Optional: GPU acceleration
+# nvidia-tensorrt>=8.0.0    # TensorRT (NVIDIA GPUs only)
+
+# Optional: Mobile deployment
+# coremltools>=6.0          # CoreML export (macOS)
+

@@ -1,0 +1,71 @@
+# AI Training Directory - Git Ignore
+
+# Datasets (too large for git)
+datasets/raw/**
+datasets/processed/**
+!datasets/processed/data.yaml  # Keep config file
+
+# Trained models (too large for git)
+models/**/*.pt
+models/**/*.onnx
+models/**/*.engine
+models/**/*.mlmodel
+models/training_runs/**
+models/exports/**
+!models/README.md  # Keep readme
+
+# Jupyter notebook checkpoints
+.ipynb_checkpoints/
+**/.ipynb_checkpoints/
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Virtual environments
+venv/
+env/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Temporary files
+*.tmp
+*.temp
+tmp/
+temp/
+
+# Downloaded model weights (will be re-downloaded)
+*.pth
+
+# TensorBoard logs (can be large)
+runs/
+events.out.tfevents.*
+
+# Evaluation outputs
+evaluation/
+results/
+
+# Keep these
+!.gitkeep
+!README.md
+!requirements.txt
+!scripts/**
+!notebooks/**/*.ipynb
+

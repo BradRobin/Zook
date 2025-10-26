@@ -289,100 +289,84 @@ Response:
 
 ### Model Information
 
-The detection system uses **YOLOv11n** (nano variant) from Ultralytics for real-time threat detection:
+The detection system uses **YOLOv11** from Ultralytics for real-time threat detection:
 
-- **Architecture**: YOLOv11n (lightweight, optimized for speed)
-- **Training Data**: COCO dataset (pretrained model)
+- **Architecture**: YOLOv11n (lightweight) or YOLOv11s (balanced)
+- **Training Data**: COCO dataset (pretrained) OR Custom trained model
 - **Target Class**: Knife (COCO class ID 43)
 - **Input Size**: 640x640 RGB images
 - **Confidence Threshold**: 0.90 (90%)
 - **Performance Target**: <30ms per frame on mid-tier GPU
 
+### Model Options
+
+**Option 1: COCO Pretrained (Default)**
+- Out-of-the-box functionality
+- ~65% mAP on knife detection
+- Good for initial testing
+- No training required
+
+**Option 2: Custom Trained Model (Recommended)**
+- >90% mAP on knife detection
+- Better accuracy for your specific use case
+- Trained on 1000+ knife images
+- See `../ai/README.md` for training guide
+
+The backend automatically loads custom model if present at `app/models/custom_knife_model.pt`!
+
 ### Custom Model Training
 
-For improved accuracy on your specific use case, you can train a custom YOLOv11 model:
+For improved accuracy (>90% mAP), train a custom YOLOv11 model:
 
-#### 1. Prepare Dataset
+**📚 Complete Training Guide**: See [`../ai/README.md`](../ai/README.md)
 
-Create a dataset with knife images and annotations in YOLO format:
+**Quick Start**: See [`../ai/QUICKSTART.md`](../ai/QUICKSTART.md) for 15-minute setup
 
-```
-dataset/
-├── images/
-│   ├── train/
-│   │   ├── img001.jpg
-│   │   ├── img002.jpg
-│   │   └── ...
-│   └── val/
-│       ├── img100.jpg
-│       └── ...
-└── labels/
-    ├── train/
-    │   ├── img001.txt
-    │   ├── img002.txt
-    │   └── ...
-    └── val/
-        ├── img100.txt
-        └── ...
-```
+The `ai/` directory contains a complete training pipeline:
 
-Each label file (`.txt`) contains bounding box annotations:
-```
-0 0.5 0.5 0.3 0.4
-# Format: class_id center_x center_y width height (normalized 0-1)
-```
-
-#### 2. Create Data Configuration
-
-Create `knife_data.yaml`:
-
-```yaml
-path: /path/to/dataset
-train: images/train
-val: images/val
-
-nc: 1  # number of classes
-names: ['knife']
-```
-
-#### 3. Train the Model
+**Training Steps:**
 
 ```bash
-# Install ultralytics
-pip install ultralytics
+# 1. Install dependencies
+cd ../ai
+pip install -r requirements.txt
 
-# Train YOLOv11n on your dataset
-yolo train data=knife_data.yaml model=yolo11n.pt epochs=100 imgsz=640 batch=16
+# 2. Download dataset (Roboflow, Kaggle, or manual)
+python scripts/download_datasets.py --source roboflow \
+    --workspace "workspace" --project "knife-detection" \
+    --version 1 --api-key "YOUR_KEY"
 
-# For better accuracy (slower training):
-yolo train data=knife_data.yaml model=yolo11s.pt epochs=150 imgsz=640 batch=8
+# 3. Prepare dataset (validate, clean, split)
+python scripts/prepare_dataset.py
 
-# Monitor training
-tensorboard --logdir runs/detect/train
+# 4. Train model (2-4 hours on GPU)
+python scripts/train.py --model yolo11s --epochs 150 --cache
+
+# 5. Evaluate performance
+python scripts/evaluate.py
+
+# 6. Export and deploy to backend
+python scripts/export_model.py --deploy
+
+# 7. Restart backend - custom model loads automatically!
+cd ../backend
+uvicorn app.main:app --reload
 ```
 
-#### 4. Validate Performance
+**Features:**
+- ✅ Automated dataset download (Roboflow, Kaggle)
+- ✅ Data validation and cleaning
+- ✅ Training with full augmentation pipeline
+- ✅ Comprehensive evaluation metrics
+- ✅ Multi-format export (PyTorch, ONNX, TensorRT)
+- ✅ One-command deployment to backend
 
-```bash
-# Validate on test set
-yolo val model=runs/detect/train/weights/best.pt data=knife_data.yaml
+**Expected Results:**
+- >90% mAP@0.5 on custom knife dataset
+- 15-25ms inference time on GPU
+- 27%+ improvement over COCO baseline
 
-# Target metrics:
-# - mAP@0.5: >0.95 (95% mean Average Precision)
-# - Precision: >0.90
-# - Recall: >0.85
-```
-
-#### 5. Deploy Custom Model
-
-```bash
-# Copy trained model to backend
-cp runs/detect/train/weights/best.pt backend/app/models/custom_knife_model.pt
-
-# Restart server (model will be loaded automatically)
-```
-
-The server automatically detects and loads `custom_knife_model.pt` if present in `app/models/` directory.
+For complete documentation, see [`../ai/README.md`](../ai/README.md)
 
 ### Performance Benchmarks
 
