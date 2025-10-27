@@ -428,3 +428,74 @@ body {
         gap: 0.5rem;
     }
 }
+
+/* Stream Status Indicators */
+.stream-status {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    background-color: rgba(0, 0, 0, 0.7);
+    color: #fff;
+    padding: 8px 12px;
+    border-radius: 4px;
+    font-size: 0.85rem;
+    display: flex;
+    gap: 15px;
+    align-items: center;
+    z-index: 10;
+}
+
+.status-item {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+}
+
+.status-label {
+    font-weight: 600;
+    opacity: 0.8;
+}
+
+.status-value {
+    font-weight: 700;
+    color: var(--accent-green);
+}
+
+/* Recording Indicator */
+.recording-indicator {
+    color: var(--alert-red);
+}
+
+.recording-dot {
+    width: 10px;
+    height: 10px;
+    background-color: var(--alert-red);
+    border-radius: 50%;
+    display: inline-block;
+    animation: pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse {
+    0%, 100% {
+        opacity: 1;
+        transform: scale(1);
+    }
+    50% {
+        opacity: 0.5;
+        transform: scale(1.2);
+    }
+}
+
+/* Idle Counter */
+#idle-indicator {
+    color: #ffa500;
+}
+
+#idle-counter {
+    color: #ffa500;
+}
+
+/* Video section positioning for overlays */
+.video-section {
+    position: relative;
+}

@@ -1,12 +1,207 @@
-// Zook MVP - Vanilla JavaScript Application Logic
+// Zook MVP - Vanilla JavaScript Application Logic with WebSocket Streaming
 
+/**
+ * StreamingDetection - Real-time video streaming with WebSocket
+ * 
+ * Handles continuous frame streaming at 30fps to backend,
+ * receives real-time detection results via WebSocket,
+ * manages recording state and session lifecycle.
+ */
+class StreamingDetection {
+    constructor(apiUrl, authToken) {
+        this.apiUrl = apiUrl;
+        this.authToken = authToken;
+        this.websocket = null;
+        this.videoElement = null;
+        this.canvas = document.createElement('canvas');
+        this.ctx = this.canvas.getContext('2d');
+        this.targetFPS = 30;  // Capture at 30fps, backend downsamples to 15fps
+        this.frameInterval = 1000 / this.targetFPS;
+        this.lastFrameTime = 0;
+        this.isStreaming = false;
+        this.frameCount = 0;
+        this.sessionId = null;
+        this.isRecording = false;
+        this.actualFPS = 0;
+        this.idleMinutes = 0;
+        
+        // Callbacks
+        this.onDetection = null;
+        this.onStatusUpdate = null;
+        this.onError = null;
+        this.onClose = null;
+    }
+    
+    async connect(videoElement) {
+        this.videoElement = videoElement;
+        
+        // Convert http to ws protocol
+        const wsUrl = this.apiUrl.replace('http://', 'ws://').replace('https://', 'wss://') 
+                      + `/ws/stream?token=${this.authToken}`;
+        
+        console.log('Connecting to WebSocket:', wsUrl);
+        
+        return new Promise((resolve, reject) => {
+            try {
+                this.websocket = new WebSocket(wsUrl);
+                
+                this.websocket.onopen = () => {
+                    console.log('✅ WebSocket connected');
+                    resolve();
+                };
+                
+                this.websocket.onmessage = (event) => {
+                    this.handleMessage(event.data);
+                };
+                
+                this.websocket.onerror = (error) => {
+                    console.error('❌ WebSocket error:', error);
+                    if (this.onError) {
+                        this.onError('WebSocket connection error');
+                    }
+                    reject(error);
+                };
+                
+                this.websocket.onclose = (event) => {
+                    console.log('WebSocket closed:', event.code, event.reason);
+                    this.isStreaming = false;
+                    
+                    if (this.onClose) {
+                        let reason = 'Connection closed';
+                        if (event.code === 4001) {
+                            reason = 'Authentication failed';
+                        } else if (event.code === 1000) {
+                            reason = 'Idle timeout (5 minutes without detection)';
+                        }
+                        this.onClose(reason);
+                    }
+                };
+                
+            } catch (error) {
+                console.error('Failed to create WebSocket:', error);
+                reject(error);
+            }
+        });
+    }
+    
+    handleMessage(data) {
+        try {
+            const message = JSON.parse(data);
+            
+            // Welcome message on connect
+            if (message.type === 'connected') {
+                console.log('📩 Welcome:', message.message);
+                this.sessionId = message.session_id;
+                this.startStreaming();
+                return;
+            }
+            
+            // Detection result
+            if (message.threats !== undefined) {
+                this.frameCount++;
+                this.actualFPS = message.fps || 0;
+                this.isRecording = message.recording || false;
+                this.idleMinutes = message.idle_minutes || 0;
+                
+                // Update status
+                if (this.onStatusUpdate) {
+                    this.onStatusUpdate({
+                        fps: this.actualFPS,
+                        recording: this.isRecording,
+                        idleMinutes: this.idleMinutes,
+                        processingTime: message.processing_time_ms,
+                        queueSize: message.queue_size,
+                        frameNumber: message.frame_number
+                    });
+                }
+                
+                // Handle threats
+                if (message.threats && message.threats.length > 0 && this.onDetection) {
+                    this.onDetection(message.threats, message);
+                }
+            }
+            
+            // Error message
+            if (message.error) {
+                console.error('Server error:', message.error);
+                if (this.onError) {
+                    this.onError(message.error);
+                }
+            }
+            
+        } catch (error) {
+            console.error('Error parsing WebSocket message:', error);
+        }
+    }
+    
+    startStreaming() {
+        if (this.isStreaming) return;
+        
+        this.isStreaming = true;
+        console.log('🎬 Starting frame streaming at', this.targetFPS, 'FPS');
+        this.streamFrames();
+    }
+    
+    async streamFrames() {
+        if (!this.isStreaming || !this.websocket || this.websocket.readyState !== WebSocket.OPEN) {
+            return;
+        }
+        
+        const now = performance.now();
+        
+        // Check if it's time to send next frame (30 FPS = 33ms between frames)
+        if (now - this.lastFrameTime >= this.frameInterval) {
+            // Capture frame from video
+            if (this.videoElement && this.videoElement.readyState === this.videoElement.HAVE_ENOUGH_DATA) {
+                this.canvas.width = 640;
+                this.canvas.height = 640;
+                this.ctx.drawImage(this.videoElement, 0, 0, 640, 640);
+                
+                // Convert to blob (JPEG, 80% quality)
+                this.canvas.toBlob((blob) => {
+                    if (blob && this.websocket && this.websocket.readyState === WebSocket.OPEN) {
+                        // Send frame as binary data
+                        blob.arrayBuffer().then(buffer => {
+                            this.websocket.send(buffer);
+                        });
+                    }
+                }, 'image/jpeg', 0.8);
+            }
+            
+            this.lastFrameTime = now;
+        }
+        
+        // Schedule next frame using requestAnimationFrame for smooth performance
+        requestAnimationFrame(() => this.streamFrames());
+    }
+    
+    stopStreaming() {
+        this.isStreaming = false;
+        console.log('⏸️ Streaming paused');
+    }
+    
+    disconnect() {
+        this.isStreaming = false;
+        
+        if (this.websocket) {
+            this.websocket.close(1000, 'User disconnect');
+            this.websocket = null;
+        }
+        
+        console.log('🔌 WebSocket disconnected');
+    }
+}
+
+/**
+ * ZookApp - Main application class
+ */
 class ZookApp {
     constructor() {
         this.isScanning = false;
-        this.detectionInterval = null;
         this.videoStream = null;
         this.authToken = null;
         this.sessionId = null;
+        this.streamingDetection = null;
         
         // Auto-detect API URL based on environment
         if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
@@ -28,6 +223,31 @@ class ZookApp {
     init() {
         this.bindEvents();
         this.checkStoredAuth();
+        this.addStatusIndicators();
+    }
+    
+    addStatusIndicators() {
+        // Add FPS counter and recording indicator to the page
+        const videoSection = document.querySelector('.video-section');
+        if (videoSection && !document.getElementById('stream-status')) {
+            const statusHTML = `
+                <div id="stream-status" class="stream-status hidden">
+                    <div class="status-item">
+                        <span class="status-label">FPS:</span>
+                        <span id="fps-counter" class="status-value">0.0</span>
+                    </div>
+                    <div class="status-item recording-indicator hidden" id="recording-indicator">
+                        <span class="recording-dot"></span>
+                        <span class="status-label">Recording</span>
+                    </div>
+                    <div class="status-item hidden" id="idle-indicator">
+                        <span class="status-label">Idle:</span>
+                        <span id="idle-counter" class="status-value">0.0m</span>
+                    </div>
+                </div>
+            `;
+            videoSection.insertAdjacentHTML('beforeend', statusHTML);
+        }
     }
 
     bindEvents() {
@@ -201,7 +421,7 @@ class ZookApp {
 
         try {
             await this.startCamera();
-            this.startScanning();
+            await this.startScanning();
         } catch (error) {
             console.error('Camera error:', error);
             this.addLogEntry('Camera access denied or unavailable', 'error');
@@ -226,26 +446,67 @@ class ZookApp {
         }
     }
 
-    startScanning() {
+    async startScanning() {
+        if (this.isScanning) return;
+        
         this.isScanning = true;
         document.getElementById('pause-btn').textContent = 'Pause Scan';
-        this.addLogEntry('Scanning started...', 'info');
+        this.addLogEntry('Connecting to real-time detection service...', 'info');
 
-        // Start detection simulation every 5 seconds
-        this.detectionInterval = setInterval(() => {
-            this.simulateDetection();
-        }, 5000);
+        try {
+            // Create streaming detection instance
+            this.streamingDetection = new StreamingDetection(this.apiUrl, this.authToken);
+            
+            // Set up callbacks
+            this.streamingDetection.onDetection = (threats, data) => {
+                this.handleThreatDetection(threats, data);
+            };
+            
+            this.streamingDetection.onStatusUpdate = (status) => {
+                this.updateStreamStatus(status);
+            };
+            
+            this.streamingDetection.onError = (error) => {
+                this.addLogEntry(`Stream error: ${error}`, 'error');
+            };
+            
+            this.streamingDetection.onClose = (reason) => {
+                this.addLogEntry(`Stream closed: ${reason}`, 'info');
+                this.isScanning = false;
+                document.getElementById('pause-btn').textContent = 'Resume Scan';
+                
+                // Hide status indicators
+                document.getElementById('stream-status')?.classList.add('hidden');
+            };
+            
+            // Connect to WebSocket
+            const videoElement = document.getElementById('feed');
+            await this.streamingDetection.connect(videoElement);
+            
+            this.addLogEntry('✅ Real-time streaming active (15 FPS)', 'info');
+            
+            // Show status indicators
+            document.getElementById('stream-status')?.classList.remove('hidden');
+            
+        } catch (error) {
+            console.error('Failed to start streaming:', error);
+            this.addLogEntry('Failed to connect to detection service', 'error');
+            this.isScanning = false;
+            document.getElementById('pause-btn').textContent = 'Resume Scan';
+        }
     }
 
     stopScanning() {
         this.isScanning = false;
         document.getElementById('pause-btn').textContent = 'Resume Scan';
-        this.addLogEntry('Scanning paused', 'info');
+        this.addLogEntry('Streaming paused', 'info');
 
-        if (this.detectionInterval) {
-            clearInterval(this.detectionInterval);
-            this.detectionInterval = null;
+        if (this.streamingDetection) {
+            this.streamingDetection.stopStreaming();
         }
+        
+        // Hide status indicators
+        document.getElementById('stream-status')?.classList.add('hidden');
     }
 
     toggleScanning() {
@@ -256,86 +517,51 @@ class ZookApp {
         }
     }
 
-    async simulateDetection() {
-        if (!this.isScanning) return;
-
-        try {
-            // Capture frame from video
-            const canvas = document.createElement('canvas');
-            const video = document.getElementById('feed');
-            const ctx = canvas.getContext('2d');
-            
-            canvas.width = video.videoWidth || 640;
-            canvas.height = video.videoHeight || 480;
-            ctx.drawImage(video, 0, 0);
-
-            // Convert to blob for API call
-            const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.8));
-            
-            // Simulate API call to detection endpoint with JWT auth
-            const formData = new FormData();
-            formData.append('image', blob, 'frame.jpg');
-
-            try {
-                const response = await fetch('http://localhost:8000/detect', {
-                    method: 'POST',
-                    headers: {
-                        'Authorization': `Bearer ${this.authToken}`
-                    },
-                    body: formData
-                });
-
-                if (response.status === 401) {
-                    // Token expired, logout user
-                    console.log('Token expired, logging out');
-                    this.addLogEntry('Session expired. Please login again.', 'error');
-                    localStorage.removeItem('zook_auth_token');
-                    localStorage.removeItem('zook_session_id');
-                    this.stopScanning();
-                    // Optionally redirect to login
-                    setTimeout(() => {
-                        location.reload();
-                    }, 2000);
-                    return;
-                }
-
-                if (response.ok) {
-                    const result = await response.json();
-                    if (result.threats && result.threats.length > 0) {
-                        this.handleThreatDetection(result.threats);
-                    }
-                }
-            } catch (apiError) {
-                // Fallback to random simulation for MVP
-                this.simulateRandomDetection();
+    updateStreamStatus(status) {
+        // Update FPS counter
+        const fpsCounter = document.getElementById('fps-counter');
+        if (fpsCounter) {
+            fpsCounter.textContent = status.fps.toFixed(1);
+        }
+        
+        // Update recording indicator
+        const recordingIndicator = document.getElementById('recording-indicator');
+        if (recordingIndicator) {
+            if (status.recording) {
+                recordingIndicator.classList.remove('hidden');
+            } else {
+                recordingIndicator.classList.add('hidden');
             }
-
-        } catch (error) {
-            console.error('Detection error:', error);
-            // Fallback to random simulation
-            this.simulateRandomDetection();
+        }
+        
+        // Update idle counter
+        const idleIndicator = document.getElementById('idle-indicator');
+        const idleCounter = document.getElementById('idle-counter');
+        if (idleIndicator && idleCounter) {
+            if (status.idleMinutes > 0) {
+                idleIndicator.classList.remove('hidden');
+                idleCounter.textContent = status.idleMinutes.toFixed(1) + 'm';
+            } else {
+                idleIndicator.classList.add('hidden');
+            }
         }
     }
 
-    simulateRandomDetection() {
-        // 10% chance of random threat detection for MVP
-        if (Math.random() < 0.1) {
-            const threats = [{
-                type: 'knife',
-                confidence: Math.floor(Math.random() * 20) + 80, // 80-99%
-                timestamp: new Date()
-            }];
-            this.handleThreatDetection(threats);
-        }
-    }
-
-    handleThreatDetection(threats) {
+    handleThreatDetection(threats, data) {
         threats.forEach(threat => {
-            const timestamp = threat.timestamp || new Date();
+            const timestamp = new Date();
             const timeStr = timestamp.toLocaleTimeString();
-            const confidence = threat.confidence || Math.floor(Math.random() * 20) + 80;
+            const confidence = Math.round((threat.confidence || 0) * 100);
             
-            this.addLogEntry(`Threat spotted at ${timeStr} - Confidence: ${confidence}%`, 'threat');
+            this.addLogEntry(
+                `🚨 ${threat.type.toUpperCase()} detected at ${timeStr} - Confidence: ${confidence}%`, 
+                'threat'
+            );
+            
+            // Log processing time if available
+            if (data && data.processing_time_ms) {
+                console.log(`Processing time: ${data.processing_time_ms.toFixed(1)}ms`);
+            }
             
             // Trigger visual alert
             this.triggerThreatAlert();
@@ -383,8 +609,9 @@ class ZookApp {
 
     // Cleanup method
     destroy() {
-        if (this.detectionInterval) {
-            clearInterval(this.detectionInterval);
+        if (this.streamingDetection) {
+            this.streamingDetection.disconnect();
+            this.streamingDetection = null;
         }
         
         if (this.videoStream) {

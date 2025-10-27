@@ -9,7 +9,7 @@ import logging
 
 from .config import settings
 from .database import init_db
-from .routers import auth_routes, stream_routes, detection_routes
+from .routers import auth_routes, stream_routes, detection_routes, stream_ws_routes
 from .services import get_detector
 
 # Configure logging
@@ -91,6 +91,7 @@ async def https_redirect_middleware(request: Request, call_next):
 app.include_router(auth_routes.router)
 app.include_router(stream_routes.router)
 app.include_router(detection_routes.router)
+app.include_router(stream_ws_routes.router)
 
 
 # Root endpoint
