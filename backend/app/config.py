@@ -3,7 +3,7 @@ Configuration settings for Zook FastAPI application.
 Loads environment variables and provides application settings.
 """
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from typing import List
+from typing import List, Optional
 
 
 class Settings(BaseSettings):
@@ -31,6 +31,12 @@ class Settings(BaseSettings):
     ENVIRONMENT: str = "development"
     API_V1_STR: str = "/api"
     PROJECT_NAME: str = "Zook Auth Server"
+    
+    # Detection Model Configuration
+    USE_CUSTOM_MODEL: bool = True
+    CUSTOM_MODEL_PATH: Optional[str] = "app/models/custom_knife_model.pt"
+    DETECTION_DEVICE: str = "cpu"
+    DETECTION_CONFIDENCE_THRESHOLD: float = 0.90
 
 
 # Global settings instance

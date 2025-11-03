@@ -121,15 +121,26 @@ class ThreatDetector:
         # Determine which model to use
         model_path = custom_model_path or self.CUSTOM_MODEL_PATH
         
-        if model_path and model_path.exists():
+        if model_path and Path(model_path).exists():
             logger.info(f"Loading custom trained model from {model_path}")
             self.model_type = "custom"
             self.model = YOLO(str(model_path))
+            # Custom models typically use class ID 0 for knife (single class)
+            self.knife_class_id = 0
         else:
             logger.info("Loading pretrained YOLOv11n model from Ultralytics")
             self.model_type = "pretrained"
             # YOLOv11n will be downloaded automatically on first use
             self.model = YOLO('yolo11n.pt')
+            # COCO model uses class ID 43 for knife
+            self.knife_class_id = self.KNIFE_CLASS_ID
+        
+        # Verify knife class exists in model
+        if self.knife_class_id in self.model.names:
+            class_name = self.model.names[self.knife_class_id]
+            logger.info(f"Knife class detected: ID={self.knife_class_id}, name='{class_name}'")
+        else:
+            logger.warning(f"Knife class ID {self.knife_class_id} not found in model!")
         
         # Move model to specified device
         self.model.to(self.device)
@@ -203,16 +214,13 @@ class ThreatDetector:
         
         try:
             # Run inference
-            # TEMPORARY DEBUG MODE: Detect ALL classes to see what model finds
             results = self.model.predict(
                 image_array,
-                conf=0.25,  # Lower threshold to 25% for debugging
-                # classes=[self.KNIFE_CLASS_ID],  # COMMENTED OUT - detect all classes for now
+                conf=self.confidence_threshold,
+                classes=[self.knife_class_id],  # Only detect knife class
                 verbose=False,
                 imgsz=640
             )
-            
-            logger.info(f"[DEBUG MODE] Detecting ALL classes with 25% confidence threshold")
             
             inference_time = (time.time() - start_time) * 1000  # Convert to ms
             logger.info(f"Inference completed in {inference_time:.2f}ms")
@@ -239,7 +247,7 @@ class ThreatDetector:
                         logger.info(f"Detection: class_id={class_id} ({class_name}), confidence={confidence:.2%}")
                         
                         # Double-check it's a knife (should always be true due to classes filter)
-                        if class_id == self.KNIFE_CLASS_ID and confidence >= self.confidence_threshold:
+                        if class_id == self.knife_class_id and confidence >= self.confidence_threshold:
                             bbox = None
                             if return_bbox:
                                 # Get bounding box in xyxy format
@@ -255,7 +263,7 @@ class ThreatDetector:
                             
                             logger.info(f"✓ Knife detected with {confidence:.2%} confidence (ABOVE threshold)")
                         else:
-                            if class_id == self.KNIFE_CLASS_ID:
+                            if class_id == self.knife_class_id:
                                 logger.info(f"✗ Knife detected with {confidence:.2%} confidence (BELOW 90% threshold)")
                 else:
                     logger.info("YOLO returned 0 detections for this frame")
@@ -297,8 +305,10 @@ class ThreatDetector:
             "device": self.device,
             "confidence_threshold": self.confidence_threshold,
             "target_classes": ["knife"],
+            "knife_class_id": self.knife_class_id,
             "input_size": "640x640",
-            "architecture": "YOLOv11n"
+            "architecture": "YOLOv11n",
+            "total_classes": len(self.model.names)
         }
 
 
@@ -308,6 +318,7 @@ _detector_instance: Optional[ThreatDetector] = None
 
 def get_detector(
     confidence_threshold: float = 0.90,
+    custom_model_path: Optional[str] = None,
     device: str = 'cpu'
 ) -> ThreatDetector:
     """
@@ -318,6 +329,7 @@ def get_detector(
     
     Args:
         confidence_threshold: Minimum confidence for detections (default: 0.90)
+        custom_model_path: Optional path to custom trained model
         device: Device for inference ('cpu', 'cuda', 'mps')
         
     Returns:
@@ -329,6 +341,7 @@ def get_detector(
         logger.info("Creating new ThreatDetector instance")
         _detector_instance = ThreatDetector(
             confidence_threshold=confidence_threshold,
+            custom_model_path=Path(custom_model_path) if custom_model_path else None,
             device=device
         )
     

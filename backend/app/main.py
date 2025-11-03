@@ -37,9 +37,34 @@ async def lifespan(app: FastAPI):
     # Initialize YOLOv11 detection model
     try:
         logger.info("Initializing YOLOv11 threat detection model...")
-        detector = get_detector(confidence_threshold=0.90, device='cpu')
+        
+        # Check for custom model if enabled
+        custom_model_path = None
+        if settings.USE_CUSTOM_MODEL and settings.CUSTOM_MODEL_PATH:
+            from pathlib import Path
+            model_path = Path(settings.CUSTOM_MODEL_PATH)
+            if model_path.exists():
+                custom_model_path = str(model_path)
+                logger.info(f"Custom model found: {custom_model_path}")
+            else:
+                logger.warning(f"Custom model not found at {model_path}, using COCO pretrained")
+        
+        # Initialize detector with configuration
+        detector = get_detector(
+            confidence_threshold=settings.DETECTION_CONFIDENCE_THRESHOLD,
+            custom_model_path=custom_model_path,
+            device=settings.DETECTION_DEVICE
+        )
+        
         logger.info("Detection model initialized and ready")
-        logger.info(f"Model info: {detector.get_model_info()}")
+        model_info = detector.get_model_info()
+        logger.info(f"Model info: {model_info}")
+        
+        if model_info['model_type'] == 'custom':
+            logger.info("✓ Using custom-trained knife detection model")
+        else:
+            logger.info("✓ Using COCO pre-trained model (consider training custom model for >90% accuracy)")
+            
     except Exception as e:
         logger.error(f"Detection model initialization failed: {e}")
         logger.warning("Server will start but detection endpoint may not work")
