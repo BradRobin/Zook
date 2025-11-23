@@ -193,6 +193,238 @@ class StreamingDetection {
 }
 
 /**
+ * RESTDetection - REST API-based detection (5-second intervals)
+ * 
+ * Alternative to WebSocket streaming. Captures frames every 5 seconds,
+ * POSTs to /detect endpoint, and handles responses with visual feedback.
+ */
+class RESTDetection {
+    constructor(apiUrl, authToken) {
+        this.apiUrl = apiUrl;
+        this.authToken = authToken;
+        this.videoElement = null;
+        this.canvas = document.createElement('canvas');
+        this.ctx = this.canvas.getContext('2d');
+        this.isScanning = false;
+        this.intervalId = null;
+        this.captureInterval = 5000; // 5 seconds
+        this.frameCount = 0;
+        
+        // Callbacks
+        this.onDetection = null;
+        this.onError = null;
+        this.onStatusUpdate = null;
+        this.onClose = null;
+        
+        console.log('RESTDetection initialized - 5 second intervals');
+    }
+    
+    async start(videoElement) {
+        if (this.isScanning) {
+            console.warn('RESTDetection already scanning');
+            return;
+        }
+        
+        this.videoElement = videoElement;
+        this.isScanning = true;
+        
+        console.log('🎬 Starting REST API detection (5s intervals)');
+        
+        // Start interval for capturing and detecting
+        this.intervalId = setInterval(() => {
+            this.captureAndDetect();
+        }, this.captureInterval);
+        
+        // Capture first frame immediately
+        setTimeout(() => this.captureAndDetect(), 100);
+    }
+    
+    async captureFrame() {
+        if (!this.videoElement || this.videoElement.readyState !== this.videoElement.HAVE_ENOUGH_DATA) {
+            console.warn('Video not ready for capture');
+            return null;
+        }
+        
+        // Set canvas size to match video
+        this.canvas.width = this.videoElement.videoWidth || 640;
+        this.canvas.height = this.videoElement.videoHeight || 640;
+        
+        // Draw current video frame to canvas
+        this.ctx.drawImage(this.videoElement, 0, 0, this.canvas.width, this.canvas.height);
+        
+        // Convert to blob (JPEG, 80% quality)
+        return new Promise((resolve, reject) => {
+            this.canvas.toBlob((blob) => {
+                if (blob) {
+                    resolve(blob);
+                } else {
+                    reject(new Error('Failed to create blob from canvas'));
+                }
+            }, 'image/jpeg', 0.8);
+        });
+    }
+    
+    async sendDetectionRequest(blob) {
+        const formData = new FormData();
+        formData.append('image', blob, 'frame.jpg');
+        
+        try {
+            const response = await fetch(`${this.apiUrl}/detect`, {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${this.authToken}`
+                },
+                body: formData
+            });
+            
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+            
+            return await response.json();
+        } catch (error) {
+            // Handle offline/error states
+            this.handleError(error);
+            throw error;
+        }
+    }
+    
+    async captureAndDetect() {
+        if (!this.isScanning) return;
+        
+        try {
+            const startTime = performance.now();
+            
+            // Capture frame
+            const blob = await this.captureFrame();
+            if (!blob) {
+                console.warn('No frame captured, skipping detection');
+                return;
+            }
+            
+            this.frameCount++;
+            console.log(`📸 Frame ${this.frameCount} captured (${(blob.size / 1024).toFixed(1)}KB)`);
+            
+            // Send to detection API
+            const result = await this.sendDetectionRequest(blob);
+            
+            const processingTime = performance.now() - startTime;
+            console.log(`✅ Detection complete in ${processingTime.toFixed(1)}ms`);
+            
+            // Handle detection response
+            this.handleDetectionResponse(result, processingTime);
+            
+        } catch (error) {
+            console.error('Capture and detect error:', error);
+            // Continue scanning despite errors
+        }
+    }
+    
+    handleDetectionResponse(data, processingTime) {
+        // Expected response format:
+        // {
+        //   "threats_detected": true,
+        //   "threats": [
+        //     {"type": "knife", "confidence": 0.95, "bbox": {...}}
+        //   ],
+        //   "processing_time_ms": 45.2
+        // }
+        
+        // Update status
+        if (this.onStatusUpdate) {
+            this.onStatusUpdate({
+                fps: 1000 / this.captureInterval, // Effective FPS
+                recording: false, // REST mode doesn't track recording
+                processingTime: data.processing_time_ms || processingTime,
+                frameNumber: this.frameCount
+            });
+        }
+        
+        if (data.threats && data.threats.length > 0) {
+            // Filter for knife detections with >=90% confidence
+            const knives = data.threats.filter(
+                t => t.type === 'knife' && t.confidence >= 0.90
+            );
+            
+            if (knives.length > 0) {
+                console.log(`🚨 KNIFE DETECTED! Count: ${knives.length}`);
+                
+                if (this.onDetection) {
+                    this.onDetection(knives, data);
+                }
+                
+                // Trigger red border pulse
+                this.pulseRedBorder();
+                
+                // Log with timestamp
+                const timestamp = new Date().toLocaleTimeString();
+                knives.forEach(knife => {
+                    const confidence = (knife.confidence * 100).toFixed(1);
+                    console.log(`[${timestamp}] KNIFE DETECTED! Confidence: ${confidence}%`);
+                });
+            } else if (data.threats.length > 0) {
+                // Threats detected but below 90% threshold
+                console.log(`⚠️ ${data.threats.length} threat(s) detected but below 90% confidence threshold`);
+            }
+        } else {
+            console.log('✓ No threats detected');
+        }
+    }
+    
+    pulseRedBorder() {
+        if (!this.videoElement) return;
+        
+        const videoElement = this.videoElement;
+        videoElement.style.border = '4px solid red';
+        videoElement.style.transition = 'border-color 0.3s ease';
+        
+        setTimeout(() => {
+            videoElement.style.border = '1px solid #333';
+        }, 1000);
+    }
+    
+    handleError(error) {
+        console.error('Detection error:', error);
+        
+        let errorMessage = `Detection error: ${error.message}`;
+        
+        if (error.message.includes('Failed to fetch') || error.message.includes('NetworkError')) {
+            // Network error - backend offline
+            errorMessage = 'AI service offline. Retrying in 5 seconds...';
+        } else if (error.message.includes('401') || error.message.includes('Unauthorized')) {
+            // Authentication error
+            errorMessage = 'Authentication failed. Please login again.';
+            this.stop(); // Stop scanning on auth failure
+        } else if (error.message.includes('500') || error.message.includes('Internal Server Error')) {
+            // Server error
+            errorMessage = 'Server error. Retrying...';
+        }
+        
+        if (this.onError) {
+            this.onError(errorMessage);
+        }
+    }
+    
+    stop() {
+        if (this.intervalId) {
+            clearInterval(this.intervalId);
+            this.intervalId = null;
+        }
+        
+        this.isScanning = false;
+        console.log('⏹️ REST API detection stopped');
+        
+        if (this.onClose) {
+            this.onClose('Detection stopped');
+        }
+    }
+    
+    disconnect() {
+        this.stop();
+    }
+}
+
+/**
  * ZookApp - Main application class
  */
 class ZookApp {
@@ -202,6 +434,8 @@ class ZookApp {
         this.authToken = null;
         this.sessionId = null;
         this.streamingDetection = null;
+        this.restDetection = null;
+        this.detectionMode = 'websocket'; // 'websocket' or 'rest'
         
         // Auto-detect API URL based on environment
         if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
@@ -278,6 +512,12 @@ class ZookApp {
 
         document.getElementById('close-settings').addEventListener('click', () => {
             this.hideSettings();
+        });
+
+        // Search form submission
+        document.getElementById('search-form').addEventListener('submit', (e) => {
+            e.preventDefault();
+            this.handleSearch();
         });
 
         // Close modal on outside click
@@ -446,63 +686,118 @@ class ZookApp {
         }
     }
 
-    async startScanning() {
+    async startScanning(mode = null) {
         if (this.isScanning) return;
+        
+        // Use provided mode or default to stored/default mode
+        if (mode) {
+            this.detectionMode = mode;
+        }
         
         this.isScanning = true;
         document.getElementById('pause-btn').textContent = 'Pause Scan';
-        this.addLogEntry('Connecting to real-time detection service...', 'info');
-
-        try {
-            // Create streaming detection instance
-            this.streamingDetection = new StreamingDetection(this.apiUrl, this.authToken);
+        
+        const videoElement = document.getElementById('feed');
+        
+        if (this.detectionMode === 'rest') {
+            // REST API mode - 5 second intervals
+            this.addLogEntry('Starting REST API detection (5s intervals)...', 'info');
             
-            // Set up callbacks
-            this.streamingDetection.onDetection = (threats, data) => {
-                this.handleThreatDetection(threats, data);
-            };
-            
-            this.streamingDetection.onStatusUpdate = (status) => {
-                this.updateStreamStatus(status);
-            };
-            
-            this.streamingDetection.onError = (error) => {
-                this.addLogEntry(`Stream error: ${error}`, 'error');
-            };
-            
-            this.streamingDetection.onClose = (reason) => {
-                this.addLogEntry(`Stream closed: ${reason}`, 'info');
+            try {
+                // Create REST detection instance
+                this.restDetection = new RESTDetection(this.apiUrl, this.authToken);
+                
+                // Set up callbacks
+                this.restDetection.onDetection = (threats, data) => {
+                    this.handleThreatDetection(threats, data);
+                };
+                
+                this.restDetection.onStatusUpdate = (status) => {
+                    this.updateStreamStatus(status);
+                };
+                
+                this.restDetection.onError = (error) => {
+                    this.addLogEntry(`Detection error: ${error}`, 'error');
+                };
+                
+                this.restDetection.onClose = (reason) => {
+                    this.addLogEntry(`Detection stopped: ${reason}`, 'info');
+                    this.isScanning = false;
+                    document.getElementById('pause-btn').textContent = 'Resume Scan';
+                    document.getElementById('stream-status')?.classList.add('hidden');
+                };
+                
+                // Start REST detection
+                await this.restDetection.start(videoElement);
+                
+                this.addLogEntry('✅ REST API detection active (5s intervals)', 'info');
+                document.getElementById('stream-status')?.classList.remove('hidden');
+                
+            } catch (error) {
+                console.error('Failed to start REST detection:', error);
+                this.addLogEntry('Failed to start detection service', 'error');
                 this.isScanning = false;
                 document.getElementById('pause-btn').textContent = 'Resume Scan';
+            }
+            
+        } else {
+            // WebSocket mode - real-time streaming (default)
+            this.addLogEntry('Connecting to real-time detection service...', 'info');
+
+            try {
+                // Create streaming detection instance
+                this.streamingDetection = new StreamingDetection(this.apiUrl, this.authToken);
                 
-                // Hide status indicators
-                document.getElementById('stream-status')?.classList.add('hidden');
-            };
-            
-            // Connect to WebSocket
-            const videoElement = document.getElementById('feed');
-            await this.streamingDetection.connect(videoElement);
-            
-            this.addLogEntry('✅ Real-time streaming active (15 FPS)', 'info');
-            
-            // Show status indicators
-            document.getElementById('stream-status')?.classList.remove('hidden');
-            
-        } catch (error) {
-            console.error('Failed to start streaming:', error);
-            this.addLogEntry('Failed to connect to detection service', 'error');
-            this.isScanning = false;
-            document.getElementById('pause-btn').textContent = 'Resume Scan';
+                // Set up callbacks
+                this.streamingDetection.onDetection = (threats, data) => {
+                    this.handleThreatDetection(threats, data);
+                };
+                
+                this.streamingDetection.onStatusUpdate = (status) => {
+                    this.updateStreamStatus(status);
+                };
+                
+                this.streamingDetection.onError = (error) => {
+                    this.addLogEntry(`Stream error: ${error}`, 'error');
+                };
+                
+                this.streamingDetection.onClose = (reason) => {
+                    this.addLogEntry(`Stream closed: ${reason}`, 'info');
+                    this.isScanning = false;
+                    document.getElementById('pause-btn').textContent = 'Resume Scan';
+                    
+                    // Hide status indicators
+                    document.getElementById('stream-status')?.classList.add('hidden');
+                };
+                
+                // Connect to WebSocket
+                await this.streamingDetection.connect(videoElement);
+                
+                this.addLogEntry('✅ Real-time streaming active (15 FPS)', 'info');
+                
+                // Show status indicators
+                document.getElementById('stream-status')?.classList.remove('hidden');
+                
+            } catch (error) {
+                console.error('Failed to start streaming:', error);
+                this.addLogEntry('Failed to connect to detection service', 'error');
+                this.isScanning = false;
+                document.getElementById('pause-btn').textContent = 'Resume Scan';
+            }
         }
     }
 
     stopScanning() {
         this.isScanning = false;
         document.getElementById('pause-btn').textContent = 'Resume Scan';
-        this.addLogEntry('Streaming paused', 'info');
+        this.addLogEntry('Scanning paused', 'info');
 
         if (this.streamingDetection) {
             this.streamingDetection.stopStreaming();
+        }
+        
+        if (this.restDetection) {
+            this.restDetection.stop();
         }
         
         // Hide status indicators
@@ -607,11 +902,88 @@ class ZookApp {
         drawer.classList.remove('active');
     }
 
+    async handleSearch() {
+        const searchInput = document.getElementById('search-input');
+        const prompt = searchInput.value.trim();
+        
+        if (!prompt) {
+            return;
+        }
+        
+        const resultsContainer = document.getElementById('search-results');
+        resultsContainer.innerHTML = '<div class="log-entry">Searching...</div>';
+        resultsContainer.classList.remove('hidden');
+        
+        try {
+            const response = await fetch(`${this.apiUrl}/query`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${this.authToken}`
+                },
+                body: JSON.stringify({ prompt })
+            });
+            
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}`);
+            }
+            
+            const data = await response.json();
+            this.displaySearchResults(data);
+            
+        } catch (error) {
+            console.error('Search error:', error);
+            resultsContainer.innerHTML = '<div class="no-results">Search failed. Please try again.</div>';
+        }
+    }
+
+    displaySearchResults(data) {
+        const resultsContainer = document.getElementById('search-results');
+        
+        if (!data.results || data.results.length === 0) {
+            resultsContainer.innerHTML = '<div class="no-results">No clips found matching your query.</div>';
+            return;
+        }
+        
+        let html = `<div class="log-entry" style="margin-bottom: 0.5rem;">Found ${data.results.length} clip(s):</div>`;
+        
+        data.results.forEach((clip, index) => {
+            const timestamp = new Date(clip.start_time).toLocaleString();
+            const confidence = clip.yolo_confidence 
+                ? `${(clip.yolo_confidence * 100).toFixed(1)}%` 
+                : 'N/A';
+            
+            html += `
+                <div class="result-item">
+                    <div class="result-header">
+                        <span class="result-time">${timestamp}</span>
+                        <span class="result-confidence">Conf: ${confidence}</span>
+                    </div>
+                    <video 
+                        class="result-video" 
+                        controls 
+                        preload="metadata"
+                        src="${this.apiUrl}/clips/${clip.id}"
+                    >
+                        Your browser does not support video playback.
+                    </video>
+                </div>
+            `;
+        });
+        
+        resultsContainer.innerHTML = html;
+    }
+
     // Cleanup method
     destroy() {
         if (this.streamingDetection) {
             this.streamingDetection.disconnect();
             this.streamingDetection = null;
+        }
+        
+        if (this.restDetection) {
+            this.restDetection.disconnect();
+            this.restDetection = null;
         }
         
         if (this.videoStream) {

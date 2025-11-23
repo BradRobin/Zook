@@ -65,6 +65,24 @@
             
             <!-- Status Panel -->
             <div class="status-panel">
+                <!-- Search Section -->
+                <div class="search-section">
+                    <form id="search-form" class="search-form">
+                        <label for="search-input">Ask Zook:</label>
+                        <input 
+                            type="text" 
+                            id="search-input" 
+                            name="prompt" 
+                            placeholder="e.g., show knife detections from today"
+                            autocomplete="off"
+                        >
+                        <button type="submit" class="search-button">Search</button>
+                    </form>
+                    <div id="search-results" class="search-results hidden">
+                        <!-- Results will be inserted here dynamically -->
+                    </div>
+                </div>
+                
                 <h3>Detection Log</h3>
                 <div id="status-logs" class="logs">
                     <div class="log-entry">Scanning... No threats.</div>
