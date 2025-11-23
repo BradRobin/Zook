@@ -3,10 +3,12 @@ Recording Manager for threat detection video capture.
 
 Handles video recording when threats are detected, including starting/stopping
 recordings, saving to MP4 format, and automatic cleanup of old recordings.
+Creates Clip database records for tracking and validation.
 """
 import asyncio
 import logging
 import os
+import uuid
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional, List
@@ -14,6 +16,7 @@ import cv2
 import numpy as np
 from PIL import Image
 from io import BytesIO
+from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = logging.getLogger(__name__)
 
@@ -125,7 +128,7 @@ class RecordingManager:
     Manages video recordings for threat detection sessions.
     
     Handles starting/stopping recordings, maintaining recording state,
-    and cleaning up old recordings.
+    creating Clip database records, and cleaning up old recordings.
     """
     
     def __init__(
@@ -150,6 +153,7 @@ class RecordingManager:
         
         self.active_recordings: dict[str, VideoRecorder] = {}
         self.last_detection_times: dict[str, datetime] = {}
+        self.recording_metadata: dict[str, dict] = {}  # Store metadata for DB insertion
         
         logger.info(
             f"RecordingManager initialized: {recordings_dir} "
@@ -159,13 +163,15 @@ class RecordingManager:
     def start_recording(
         self,
         session_id: str,
+        stream_session_id: str,
         detection_data: Optional[dict] = None
     ) -> str:
         """
         Start recording for a session.
         
         Args:
-            session_id: Session ID
+            session_id: Session ID (WebSocket session)
+            stream_session_id: Database stream_session ID
             detection_data: Optional detection information
             
         Returns:
@@ -188,9 +194,17 @@ class RecordingManager:
             self.active_recordings[session_id] = recorder
             self.last_detection_times[session_id] = datetime.utcnow()
             
+            # Store metadata for DB insertion when recording stops
+            self.recording_metadata[session_id] = {
+                'stream_session_id': stream_session_id,
+                'file_path': output_path,
+                'start_time': recorder.start_time,
+                'detection_data': detection_data
+            }
+            
             logger.info(f"Recording started for session {session_id}: {output_path}")
             
-            # Save metadata
+            # Save metadata file
             self._save_metadata(session_id, detection_data)
             
             return output_path
@@ -245,26 +259,80 @@ class RecordingManager:
         
         return elapsed > self.grace_period_seconds
     
-    def stop_recording(self, session_id: str) -> Optional[str]:
+    async def stop_recording(
+        self,
+        session_id: str,
+        db: Optional[AsyncSession] = None,
+        max_yolo_confidence: Optional[float] = None
+    ) -> Optional[dict]:
         """
-        Stop recording for a session.
+        Stop recording for a session and create Clip database record.
         
         Args:
             session_id: Session ID
+            db: Database session for creating Clip record
+            max_yolo_confidence: Maximum YOLO confidence from detections
             
         Returns:
-            Path to saved recording file, or None if not recording
+            Dict with recording info (path, clip_id) or None if not recording
         """
         recorder = self.active_recordings.pop(session_id, None)
         self.last_detection_times.pop(session_id, None)
+        metadata = self.recording_metadata.pop(session_id, None)
         
-        if recorder:
-            output_path = recorder.output_path
-            recorder.stop()
-            logger.info(f"Recording stopped for session {session_id}")
-            return output_path
+        if not recorder:
+            return None
         
-        return None
+        # Stop the recorder
+        output_path = recorder.output_path
+        recorder.stop()
+        
+        # Get file info
+        end_time = datetime.utcnow()
+        file_size_mb = 0.0
+        if os.path.exists(output_path):
+            file_size_mb = os.path.getsize(output_path) / (1024 * 1024)
+        
+        logger.info(f"Recording stopped for session {session_id}: {output_path}")
+        
+        # Create Clip database record if DB session provided
+        clip_id = None
+        if db and metadata:
+            try:
+                from ..models import Clip
+                
+                clip = Clip(
+                    id=uuid.uuid4(),
+                    stream_session_id=metadata['stream_session_id'],
+                    file_path=output_path,
+                    start_time=metadata['start_time'],
+                    end_time=end_time,
+                    file_size_mb=file_size_mb,
+                    frame_count=recorder.frame_count,
+                    yolo_confidence=max_yolo_confidence,
+                    clip_confidence=None,
+                    is_validated=False,
+                    validation_attempted_at=None,
+                    deleted_at=None
+                )
+                
+                db.add(clip)
+                await db.commit()
+                await db.refresh(clip)
+                
+                clip_id = clip.id
+                logger.info(f"Created Clip record in database: {clip_id}")
+                
+            except Exception as e:
+                logger.error(f"Failed to create Clip database record: {e}", exc_info=True)
+                await db.rollback()
+        
+        return {
+            'file_path': output_path,
+            'clip_id': clip_id,
+            'frame_count': recorder.frame_count,
+            'file_size_mb': file_size_mb
+        }
     
     def is_recording(self, session_id: str) -> bool:
         """Check if session is currently recording."""

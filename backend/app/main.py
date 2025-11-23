@@ -8,9 +8,10 @@ from contextlib import asynccontextmanager
 import logging
 
 from .config import settings
-from .database import init_db
+from .database import init_db, AsyncSessionLocal
 from .routers import auth_routes, stream_routes, detection_routes, stream_ws_routes
 from .services import get_detector
+from .services.cleanup_scheduler import get_cleanup_scheduler
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -21,7 +22,7 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     """
     Application lifespan events.
-    Initialize database and AI detection model on startup.
+    Initialize database, AI detection model, and cleanup scheduler on startup.
     """
     logger.info("Starting up Zook Auth Server...")
     logger.info(f"Environment: {settings.ENVIRONMENT}")
@@ -69,9 +70,49 @@ async def lifespan(app: FastAPI):
         logger.error(f"Detection model initialization failed: {e}")
         logger.warning("Server will start but detection endpoint may not work")
     
+    # Initialize CLIP validator
+    try:
+        logger.info("Initializing CLIP validation model...")
+        from .services.clip_validator import get_clip_validator
+        
+        validator = get_clip_validator(device=settings.DETECTION_DEVICE)
+        logger.info("CLIP validator initialized successfully")
+        validator_info = validator.get_validator_info()
+        logger.info(f"CLIP model: {validator_info['model_name']}")
+        
+    except Exception as e:
+        logger.error(f"CLIP validator initialization failed: {e}")
+        logger.warning("Clip validation may not work properly")
+    
+    # Initialize and start cleanup scheduler
+    cleanup_scheduler = None
+    try:
+        logger.info("Initializing cleanup scheduler...")
+        
+        # Create DB session factory for scheduler
+        async def db_session_factory():
+            return AsyncSessionLocal()
+        
+        cleanup_scheduler = get_cleanup_scheduler(db_session_factory)
+        cleanup_scheduler.start()
+        logger.info("✓ Cleanup scheduler started (runs every 6 hours)")
+        
+    except Exception as e:
+        logger.error(f"Cleanup scheduler initialization failed: {e}")
+        logger.warning("Automated cleanup will not run")
+    
     yield
     
+    # Shutdown
     logger.info("Shutting down Zook Auth Server...")
+    
+    # Stop cleanup scheduler
+    if cleanup_scheduler:
+        try:
+            cleanup_scheduler.stop()
+            logger.info("Cleanup scheduler stopped")
+        except Exception as e:
+            logger.error(f"Error stopping cleanup scheduler: {e}")
 
 
 # Create FastAPI application

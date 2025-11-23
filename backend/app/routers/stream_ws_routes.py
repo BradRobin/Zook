@@ -3,11 +3,15 @@ WebSocket routes for real-time video streaming and detection.
 
 Provides WebSocket endpoint for continuous frame streaming from frontend,
 processes frames at 15fps with YOLOv11, and returns detection results in real-time.
+Includes post-session cleanup with CLIP validation for false positive removal.
 """
 import logging
+import asyncio
+from datetime import datetime
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Depends, Query, status
 from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 
 from ..database import get_db
 from ..auth import decode_token
@@ -17,6 +21,102 @@ from ..services.stream_processor import process_stream
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["streaming"])
+
+
+async def validate_and_cleanup_clips(session: StreamSession, db: AsyncSession):
+    """
+    Post-session validation and cleanup of clips using CLIP model.
+    
+    Runs asynchronously after session ends to validate recorded clips
+    and delete false positives (<90% confidence).
+    
+    Args:
+        session: StreamSession that just ended
+        db: Database session
+    """
+    try:
+        from ..models import Clip
+        from ..services.clip_validator import get_clip_validator
+        import os
+        
+        if not session.db_stream_session_id:
+            logger.warning("Session has no DB ID, skipping clip validation")
+            return
+        
+        # Get all clips for this session
+        result = await db.execute(
+            select(Clip).where(
+                Clip.stream_session_id == session.db_stream_session_id,
+                Clip.deleted_at.is_(None)
+            )
+        )
+        clips = result.scalars().all()
+        
+        if not clips:
+            logger.info(f"No clips to validate for session {session.session_id}")
+            return
+        
+        logger.info(f"Starting CLIP validation for {len(clips)} clip(s)")
+        
+        # Get CLIP validator
+        validator = get_clip_validator(device='cpu')
+        
+        # Validate each clip
+        for clip in clips:
+            try:
+                if not os.path.exists(clip.file_path):
+                    logger.warning(f"Clip file not found: {clip.file_path}")
+                    continue
+                
+                # Run CLIP validation
+                avg_confidence, threat_count, total_frames = await validator.validate_video_async(
+                    clip.file_path,
+                    num_frames=10
+                )
+                
+                # Update clip with validation results
+                clip.clip_confidence = avg_confidence
+                clip.is_validated = True
+                clip.validation_attempted_at = datetime.utcnow()
+                
+                # If confidence < 90%, mark as false positive and delete
+                if avg_confidence < 0.90:
+                    logger.info(
+                        f"False positive detected: Clip {clip.id} "
+                        f"(CLIP confidence: {avg_confidence:.2%})"
+                    )
+                    
+                    # Soft delete in database
+                    clip.deleted_at = datetime.utcnow()
+                    
+                    # Delete physical file
+                    try:
+                        os.remove(clip.file_path)
+                        logger.info(f"Deleted false positive file: {clip.file_path}")
+                        
+                        # Also delete metadata file if exists
+                        metadata_path = clip.file_path.replace('.mp4', '_metadata.json')
+                        if os.path.exists(metadata_path):
+                            os.remove(metadata_path)
+                    except Exception as e:
+                        logger.error(f"Failed to delete file {clip.file_path}: {e}")
+                else:
+                    logger.info(
+                        f"Valid threat confirmed: Clip {clip.id} "
+                        f"(CLIP confidence: {avg_confidence:.2%})"
+                    )
+                
+            except Exception as e:
+                logger.error(f"Error validating clip {clip.id}: {e}", exc_info=True)
+                clip.validation_attempted_at = datetime.utcnow()
+        
+        # Commit all updates
+        await db.commit()
+        logger.info(f"CLIP validation complete for session {session.session_id}")
+        
+    except Exception as e:
+        logger.error(f"Error in validate_and_cleanup_clips: {e}", exc_info=True)
+        await db.rollback()
 
 
 async def verify_websocket_token(token: str, db: AsyncSession) -> tuple[str, str]:
@@ -179,9 +279,13 @@ async def stream_endpoint(
             except Exception as e:
                 logger.error(f"Error stopping processor: {e}")
         
-        # Remove session
+        # Remove session and trigger post-session cleanup
         if session:
             try:
+                # Trigger async CLIP validation (don't wait for it)
+                asyncio.create_task(validate_and_cleanup_clips(session, db))
+                
+                # Remove session from manager
                 await session_manager.remove_session(
                     session.session_id,
                     reason="disconnect"

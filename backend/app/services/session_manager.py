@@ -1,8 +1,9 @@
 """
 Stream Session Manager for WebSocket connections.
 
-Manages active video streaming sessions, handles timeouts, and coordinates
+Manages active video streaming sessions, handles timeouts, coordinates
 between WebSocket connections, frame processing, and recording.
+Persists session data to database for tracking and cleanup.
 """
 import asyncio
 import logging
@@ -11,6 +12,7 @@ from datetime import datetime, timedelta
 from typing import Dict, Optional
 from fastapi import WebSocket
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 
 logger = logging.getLogger(__name__)
 
@@ -54,12 +56,57 @@ class StreamSession:
         self.is_recording = False
         self.recording_path: Optional[str] = None
         self.recording_start_time: Optional[datetime] = None
+        self.max_yolo_confidence: Optional[float] = None  # Track max confidence
         
         # Session state
         self.is_active = True
         self.termination_reason: Optional[str] = None
         
+        # Database tracking - will be initialized on first use
+        self.db_stream_session_id: Optional[uuid.UUID] = None
+        self._db_session_created = False
+        
         logger.info(f"Session created: {session_id} for user {user_id}")
+    
+    async def _ensure_db_session(self):
+        """
+        Ensure StreamSession DB record exists.
+        
+        Creates it on first call (lazy initialization).
+        This allows us to have a stream_session_id for Clip records.
+        """
+        if self._db_session_created:
+            return
+        
+        try:
+            from ..models import StreamSession as DBStreamSession
+            
+            # Create stream session record
+            stream_session = DBStreamSession(
+                id=uuid.uuid4(),
+                user_id=uuid.UUID(self.user_id),
+                start_time=self.start_time,
+                end_time=None,  # Will be updated on cleanup
+                total_frames=0,
+                processed_frames=0,
+                dropped_frames=0,
+                total_detections=0,
+                termination_reason=None
+            )
+            
+            self.db.add(stream_session)
+            await self.db.commit()
+            await self.db.refresh(stream_session)
+            
+            self.db_stream_session_id = stream_session.id
+            self._db_session_created = True
+            
+            logger.info(f"Created StreamSession DB record: {stream_session.id}")
+            
+        except Exception as e:
+            logger.error(f"Failed to create StreamSession DB record: {e}", exc_info=True)
+            await self.db.rollback()
+            raise
     
     async def add_frame(self, frame_bytes: bytes) -> bool:
         """
@@ -109,14 +156,24 @@ class StreamSession:
         except asyncio.TimeoutError:
             return None
     
-    def register_detection(self, detection_count: int = 1):
+    def register_detection(self, detection_count: int = 1, yolo_confidence: Optional[float] = None):
         """
         Register that a detection occurred.
         
         Updates last detection time and resets idle timeout.
+        
+        Args:
+            detection_count: Number of detections
+            yolo_confidence: YOLO confidence score for tracking max
         """
         self.last_detection_time = datetime.utcnow()
         self.total_detections += detection_count
+        
+        # Track maximum YOLO confidence
+        if yolo_confidence is not None:
+            if self.max_yolo_confidence is None or yolo_confidence > self.max_yolo_confidence:
+                self.max_yolo_confidence = yolo_confidence
+        
         logger.info(f"Session {self.session_id}: Detection #{self.total_detections}")
     
     def start_recording(self, recording_path: str):
@@ -178,7 +235,7 @@ class StreamSession:
     
     async def cleanup(self, reason: str = "normal"):
         """
-        Cleanup session resources.
+        Cleanup session resources and persist to database.
         
         Args:
             reason: Termination reason (timeout, disconnect, error, normal)
@@ -199,10 +256,68 @@ class StreamSession:
             except asyncio.QueueEmpty:
                 break
         
-        # Update database (if needed)
-        # TODO: Save session to stream_sessions table
+        # Persist to database
+        await self._persist_to_database()
         
         logger.info(f"Session {self.session_id}: Cleanup complete")
+    
+    async def _persist_to_database(self):
+        """
+        Update session data in stream_sessions table.
+        
+        Updates the StreamSession record with final statistics.
+        If no clips exist, the session row will be deleted.
+        """
+        try:
+            from ..models import StreamSession as DBStreamSession, Clip
+            
+            if not self._db_session_created:
+                # No DB session was created (no recordings happened)
+                logger.info(f"No DB session to update for {self.session_id}")
+                return
+            
+            # Update the existing stream session record
+            result = await self.db.execute(
+                select(DBStreamSession).where(DBStreamSession.id == self.db_stream_session_id)
+            )
+            stream_session = result.scalar_one_or_none()
+            
+            if not stream_session:
+                logger.warning(f"StreamSession {self.db_stream_session_id} not found in database")
+                return
+            
+            # Update with final statistics
+            stream_session.end_time = datetime.utcnow()
+            stream_session.total_frames = self.total_frames
+            stream_session.processed_frames = self.processed_frames
+            stream_session.dropped_frames = self.dropped_frames
+            stream_session.total_detections = self.total_detections
+            stream_session.termination_reason = self.termination_reason
+            
+            await self.db.commit()
+            
+            logger.info(
+                f"Updated StreamSession in database: {stream_session.id} "
+                f"(frames: {self.total_frames}, detections: {self.total_detections})"
+            )
+            
+            # Check if session has clips
+            result = await self.db.execute(
+                select(Clip).where(Clip.stream_session_id == stream_session.id)
+            )
+            clips = result.scalars().all()
+            
+            # If no clips, delete the session row immediately
+            if not clips:
+                logger.info(f"No clips for session {stream_session.id}, deleting session row")
+                await self.db.delete(stream_session)
+                await self.db.commit()
+            else:
+                logger.info(f"Session {stream_session.id} has {len(clips)} clip(s), keeping for validation")
+            
+        except Exception as e:
+            logger.error(f"Failed to persist session to database: {e}", exc_info=True)
+            await self.db.rollback()
 
 
 class SessionManager:

@@ -19,4 +19,9 @@ opencv-python-headless==4.10.0.84
 pillow>=10.0.0
 numpy>=1.24.0
 
+# CLIP Validation Dependencies
+transformers>=4.30.0
+
+# Scheduler Dependencies
+apscheduler>=3.10.0
 
