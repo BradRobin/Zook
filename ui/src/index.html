@@ -18,7 +18,10 @@
             <button id="scan-btn" class="scan-button">Scan</button>
             
             <footer class="main-footer">
-                <p class="legal">Compliant with Kenya Data Protection Act. Local processing.</p>
+                <p class="legal">
+                    Data processed locally per Kenya Data Protection Act 2019 (No. 24 of 2019). 
+                    <a href="#" id="privacy-link" class="privacy-link">Privacy Notice</a>
+                </p>
                 <p class="philosophy">Building discipline one scan at a time.</p>
             </footer>
         </div>
@@ -40,7 +43,9 @@
                 <div class="form-group">
                     <label class="checkbox-label">
                         <input type="checkbox" id="consent" name="consent" required>
-                        I consent to local cam processing.
+                        I consent to camera processing and data collection as described in the 
+                        <a href="#" id="consent-privacy-link" class="inline-link">Privacy Notice</a>. 
+                        I understand my data is processed locally per Kenya DPA 2019.
                     </label>
                 </div>
                 <div class="form-actions">
@@ -95,6 +100,125 @@
             <button id="pause-btn" class="control-button">Pause Scan</button>
             <button id="settings-btn" class="control-button">Settings</button>
         </div>
+        
+        <!-- Privacy Bar -->
+        <div class="privacy-bar">
+            <span class="privacy-text">
+                🔒 Local AI processing | Data retained 7 days | 
+                <a href="#" id="privacy-dashboard-link" class="privacy-link">Your Privacy Rights</a>
+            </span>
+        </div>
+    </div>
+
+    <!-- Privacy Notice Modal -->
+    <div id="privacy-modal" class="modal hidden">
+        <div class="modal-content privacy-content">
+            <h2>Privacy Notice</h2>
+            <div class="privacy-body">
+                <section>
+                    <h3>Data Controller</h3>
+                    <p><strong>Zook AI Surveillance System</strong><br>
+                    Operated by: [Organization Name]<br>
+                    Contact: privacy@zook.ai (or designated email)<br>
+                    Kenya Data Protection Registration: [DPR Number - if required]</p>
+                </section>
+
+                <section>
+                    <h3>What Data We Collect</h3>
+                    <ul>
+                        <li><strong>Camera Feed:</strong> Live video processed in real-time for threat detection</li>
+                        <li><strong>Detection Recordings:</strong> 1-2 minute video clips when threats detected (knives, weapons)</li>
+                        <li><strong>Account Data:</strong> Username, encrypted password</li>
+                        <li><strong>Session Data:</strong> Login timestamps, IP address, device information</li>
+                        <li><strong>Detection Metadata:</strong> Timestamps, confidence scores, threat classifications</li>
+                    </ul>
+                </section>
+
+                <section>
+                    <h3>Why We Process Your Data</h3>
+                    <p><strong>Legal Basis:</strong> Your explicit consent (Data Protection Act 2019, Section 30)<br>
+                    <strong>Purpose:</strong> Real-time security monitoring and threat detection to enhance safety</p>
+                </section>
+
+                <section>
+                    <h3>How We Process Your Data</h3>
+                    <ul>
+                        <li>All AI detection runs <strong>locally on our servers</strong> - no cloud processing</li>
+                        <li>Camera feed analyzed in real-time, not stored unless threat detected</li>
+                        <li>Threat recordings saved for review and validation</li>
+                        <li>No data shared with third parties</li>
+                        <li>No international data transfers</li>
+                    </ul>
+                </section>
+
+                <section>
+                    <h3>Data Retention</h3>
+                    <ul>
+                        <li><strong>Video Clips:</strong> 7 days, then auto-deleted</li>
+                        <li><strong>False Positives:</strong> Deleted immediately after AI validation (if confidence &lt;90%)</li>
+                        <li><strong>Session Metadata:</strong> 24 hours (if no threats detected)</li>
+                        <li><strong>User Accounts:</strong> Retained until you request deletion</li>
+                    </ul>
+                </section>
+
+                <section>
+                    <h3>Your Rights (Data Protection Act 2019)</h3>
+                    <p>Under Section 38-45 of the DPA 2019, you have the right to:</p>
+                    <ul>
+                        <li><strong>Access:</strong> Request copies of your personal data</li>
+                        <li><strong>Rectification:</strong> Correct inaccurate data</li>
+                        <li><strong>Erasure:</strong> Request deletion of your data ("right to be forgotten")</li>
+                        <li><strong>Object:</strong> Object to processing for legitimate interests</li>
+                        <li><strong>Data Portability:</strong> Receive your data in machine-readable format</li>
+                        <li><strong>Withdraw Consent:</strong> Revoke consent at any time (account deletion)</li>
+                    </ul>
+                    <p><strong>To exercise your rights:</strong> Contact privacy@zook.ai or use the Settings menu</p>
+                </section>
+
+                <section>
+                    <h3>Data Security</h3>
+                    <ul>
+                        <li>Encrypted connections (HTTPS/TLS)</li>
+                        <li>Password hashing (bcrypt)</li>
+                        <li>JWT authentication tokens (24-hour expiry)</li>
+                        <li>Role-based access control</li>
+                        <li>Regular security audits</li>
+                    </ul>
+                </section>
+
+                <section>
+                    <h3>Automated Decision-Making</h3>
+                    <p>Our AI system makes automated threat assessments. You have the right to:</p>
+                    <ul>
+                        <li>Understand the logic involved (YOLO + CLIP confidence scoring)</li>
+                        <li>Contest automated decisions</li>
+                        <li>Request human review of threat classifications</li>
+                    </ul>
+                </section>
+
+                <section>
+                    <h3>Complaints</h3>
+                    <p>If you believe your data rights have been violated, you may lodge a complaint with:</p>
+                    <p><strong>Office of the Data Protection Commissioner (ODPC)</strong><br>
+                    Email: complaints@odpc.go.ke<br>
+                    Phone: +254 (0) 20 2024181<br>
+                    Website: www.odpc.go.ke<br>
+                    Physical Address: Moi Avenue, Nairobi, Kenya</p>
+                </section>
+
+                <section>
+                    <h3>Updates to This Notice</h3>
+                    <p>Last updated: November 2025<br>
+                    We may update this notice to reflect changes in our practices or legal requirements. 
+                    Material changes will be communicated via email or prominent notice in the application.</p>
+                </section>
+            </div>
+            
+            <div class="privacy-actions">
+                <button id="accept-privacy" class="auth-button">I Understand</button>
+                <button id="close-privacy" class="cancel-button">Close</button>
+            </div>
+        </div>
     </div>
 
     <!-- Settings Drawer -->
@@ -122,6 +246,12 @@
                     <input type="checkbox" id="detect-weapons">
                     Detect Other Weapons
                 </label>
+            </div>
+            <div class="setting-group">
+                <h4>Privacy & Data</h4>
+                <button id="view-privacy" class="control-button">View Privacy Notice</button>
+                <button id="download-data" class="control-button">Download My Data</button>
+                <button id="delete-account" class="control-button danger">Delete Account</button>
             </div>
             <button id="close-settings" class="close-button">Close</button>
         </div>

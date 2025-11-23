@@ -593,3 +593,90 @@ body {
     color: #666;
     font-style: italic;
 }
+
+/* Privacy Bar (Dashboard) */
+.privacy-bar {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    background: var(--bg-light-gray);
+    border-top: 1px solid var(--border-gray);
+    padding: 0.5rem 1rem;
+    text-align: center;
+    font-size: 0.75rem;
+    z-index: 100;
+}
+
+.privacy-text {
+    color: var(--text-gray);
+}
+
+.privacy-link {
+    color: var(--accent-green);
+    text-decoration: underline;
+    cursor: pointer;
+}
+
+.privacy-link:hover {
+    color: #00cc00;
+}
+
+.inline-link {
+    color: var(--accent-green);
+    text-decoration: underline;
+    font-size: inherit;
+}
+
+/* Privacy Modal */
+.privacy-content {
+    max-width: 700px;
+    max-height: 80vh;
+    overflow-y: auto;
+}
+
+.privacy-body {
+    text-align: left;
+    line-height: 1.6;
+    font-size: 0.9rem;
+}
+
+.privacy-body section {
+    margin-bottom: 1.5rem;
+}
+
+.privacy-body h3 {
+    font-size: 1rem;
+    margin-bottom: 0.5rem;
+    color: var(--text-black);
+}
+
+.privacy-body ul {
+    margin-left: 1.5rem;
+    margin-top: 0.5rem;
+}
+
+.privacy-body li {
+    margin-bottom: 0.5rem;
+}
+
+.privacy-body strong {
+    font-weight: 600;
+}
+
+.privacy-actions {
+    display: flex;
+    gap: 1rem;
+    margin-top: 1.5rem;
+    justify-content: center;
+}
+
+.danger {
+    border-color: var(--alert-red);
+    color: var(--alert-red);
+}
+
+.danger:hover {
+    background: var(--alert-red);
+    color: var(--bg-white);
+}

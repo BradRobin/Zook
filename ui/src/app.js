@@ -520,6 +520,42 @@ class ZookApp {
             this.handleSearch();
         });
 
+        // Privacy links
+        document.getElementById('privacy-link')?.addEventListener('click', (e) => {
+            e.preventDefault();
+            this.showPrivacyModal();
+        });
+
+        document.getElementById('privacy-dashboard-link')?.addEventListener('click', (e) => {
+            e.preventDefault();
+            this.showPrivacyModal();
+        });
+
+        document.getElementById('consent-privacy-link')?.addEventListener('click', (e) => {
+            e.preventDefault();
+            this.showPrivacyModal();
+        });
+
+        document.getElementById('accept-privacy')?.addEventListener('click', () => {
+            this.hidePrivacyModal();
+        });
+
+        document.getElementById('close-privacy')?.addEventListener('click', () => {
+            this.hidePrivacyModal();
+        });
+
+        document.getElementById('view-privacy')?.addEventListener('click', () => {
+            this.showPrivacyModal();
+        });
+
+        document.getElementById('download-data')?.addEventListener('click', () => {
+            this.downloadUserData();
+        });
+
+        document.getElementById('delete-account')?.addEventListener('click', () => {
+            this.requestAccountDeletion();
+        });
+
         // Close modal on outside click
         document.getElementById('login-modal').addEventListener('click', (e) => {
             if (e.target.id === 'login-modal') {
@@ -972,6 +1008,70 @@ class ZookApp {
         });
         
         resultsContainer.innerHTML = html;
+    }
+
+    showPrivacyModal() {
+        document.getElementById('privacy-modal').classList.remove('hidden');
+    }
+
+    hidePrivacyModal() {
+        document.getElementById('privacy-modal').classList.add('hidden');
+    }
+
+    async downloadUserData() {
+        // GDPR-style data export
+        try {
+            const response = await fetch(`${this.apiUrl}/user/data`, {
+                headers: this.getAuthHeaders()
+            });
+            
+            if (!response.ok) {
+                throw new Error('Data export failed');
+            }
+            
+            const blob = await response.blob();
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'zook-my-data.json';
+            a.click();
+            window.URL.revokeObjectURL(url);
+            this.addLogEntry('Data export complete', 'info');
+        } catch (error) {
+            console.error('Data export error:', error);
+            this.addLogEntry('Data export failed - feature not yet implemented', 'error');
+        }
+    }
+
+    async requestAccountDeletion() {
+        if (!confirm('Delete your account? This action is irreversible. All recordings and data will be permanently deleted.')) {
+            return;
+        }
+        
+        try {
+            const response = await fetch(`${this.apiUrl}/user/delete`, {
+                method: 'DELETE',
+                headers: this.getAuthHeaders()
+            });
+            
+            if (response.ok) {
+                alert('Account deletion request submitted. You will be logged out.');
+                localStorage.clear();
+                window.location.reload();
+            } else {
+                throw new Error('Account deletion failed');
+            }
+        } catch (error) {
+            console.error('Account deletion error:', error);
+            this.addLogEntry('Account deletion failed - feature not yet implemented', 'error');
+        }
+    }
+
+    getAuthHeaders() {
+        return {
+            'Authorization': `Bearer ${this.authToken}`,
+            'Content-Type': 'application/json'
+        };
     }
 
     // Cleanup method
