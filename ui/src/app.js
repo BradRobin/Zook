@@ -461,6 +461,15 @@ class ZookApp {
         this.bindEvents();
         this.checkStoredAuth();
         this.addStatusIndicators();
+        
+        // Listen for session expiry events (from TokenManager)
+        window.addEventListener('zook:session-expired', () => {
+            console.log('Session expired, redirecting to login...');
+            this.authToken = null;
+            this.sessionId = null;
+            this.showLoginModal();
+            this.addLogEntry('Session expired. Please login again.', 'warning');
+        });
     }
     
     addStatusIndicators() {
@@ -568,8 +577,25 @@ class ZookApp {
     }
 
     async checkStoredAuth() {
-        const token = localStorage.getItem('zook_auth_token');
+        // Check for stored tokens (legacy format or new format)
+        let token = localStorage.getItem('zook_auth_token');
         const sessionId = localStorage.getItem('zook_session_id');
+        
+        // Use TokenManager if available
+        const tokenManager = window.ZookTokenManager;
+        
+        if (tokenManager && tokenManager.isAuthenticated()) {
+            // Check if token needs refresh
+            if (tokenManager.needsRefresh()) {
+                console.log('Access token expired, attempting refresh...');
+                const refreshed = await tokenManager.refreshAccessToken();
+                if (!refreshed) {
+                    console.log('Token refresh failed, need to re-login');
+                    return;
+                }
+            }
+            token = tokenManager.getAccessToken();
+        }
         
         if (token && sessionId) {
             // Verify token is still valid
@@ -584,18 +610,41 @@ class ZookApp {
                 if (response.ok) {
                     this.authToken = token;
                     this.sessionId = sessionId;
+                    console.log('✓ Session restored from stored token');
                     this.showDashboard();
+                } else if (response.status === 401 && tokenManager) {
+                    // Try to refresh token
+                    console.log('Stored token invalid, attempting refresh...');
+                    const refreshed = await tokenManager.refreshAccessToken();
+                    if (refreshed) {
+                        this.authToken = tokenManager.getAccessToken();
+                        this.sessionId = sessionId;
+                        this.showDashboard();
+                    } else {
+                        this.clearStoredAuth();
+                    }
                 } else {
-                    // Token expired or invalid, clear storage
-                    localStorage.removeItem('zook_auth_token');
-                    localStorage.removeItem('zook_session_id');
+                    this.clearStoredAuth();
                 }
             } catch (error) {
                 console.error('Token verification failed:', error);
-                localStorage.removeItem('zook_auth_token');
-                localStorage.removeItem('zook_session_id');
+                this.clearStoredAuth();
             }
         }
+    }
+    
+    clearStoredAuth() {
+        // Clear legacy storage
+        localStorage.removeItem('zook_auth_token');
+        localStorage.removeItem('zook_session_id');
+        
+        // Clear TokenManager storage
+        if (window.ZookTokenManager) {
+            window.ZookTokenManager.clearTokens();
+        }
+        
+        this.authToken = null;
+        this.sessionId = null;
     }
 
     showLoginModal() {
@@ -663,13 +712,20 @@ class ZookApp {
 
             const data = await response.json();
             
-            // Store JWT token and session_id
+            // Store tokens using TokenManager (if available)
+            if (window.ZookTokenManager) {
+                window.ZookTokenManager.storeTokens(data);
+            }
+            
+            // Also store in legacy format for backward compatibility
             this.authToken = data.access_token;
             this.sessionId = data.session_id;
             localStorage.setItem('zook_auth_token', this.authToken);
             localStorage.setItem('zook_session_id', this.sessionId);
             
-            console.log('Login successful:', data.username);
+            console.log('✓ Login successful:', data.username);
+            console.log('  Access token expires in:', data.expires_in, 'seconds');
+            console.log('  Refresh token expires in:', data.refresh_expires_in, 'seconds');
             
             this.hideLoginModal();
             this.showDashboard();

@@ -22,7 +22,20 @@ class Settings(BaseSettings):
     # JWT Configuration
     JWT_SECRET_KEY: str = "your-secret-key-change-this-in-production"
     JWT_ALGORITHM: str = "HS256"
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 1440  # 24 hours
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 15  # Short-lived access tokens
+    REFRESH_TOKEN_EXPIRE_DAYS: int = 7  # Long-lived refresh tokens
+    TOKEN_BLACKLIST_TTL_HOURS: int = 24  # Redis TTL for blacklisted tokens
+    
+    # Redis Configuration
+    REDIS_URL: str = "redis://localhost:6379/0"
+    REDIS_ENABLED: bool = True
+    
+    # Rate Limiting Configuration
+    RATE_LIMIT_ENABLED: bool = True
+    RATE_LIMIT_LOGIN: str = "5/minute"  # Brute-force protection
+    RATE_LIMIT_REGISTER: str = "3/minute"  # Registration spam
+    RATE_LIMIT_REFRESH: str = "10/minute"  # Token refresh abuse
+    RATE_LIMIT_DEFAULT: str = "100/minute"  # General API protection
     
     # CORS
     CORS_ORIGINS: List[str] = ["http://localhost:3500", "http://localhost:3000"]

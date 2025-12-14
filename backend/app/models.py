@@ -23,6 +23,7 @@ class User(Base):
     # Relationships
     sessions = relationship("Session", back_populates="user", cascade="all, delete-orphan")
     stream_sessions = relationship("StreamSession", back_populates="user", cascade="all, delete-orphan")
+    refresh_tokens = relationship("RefreshToken", back_populates="user", cascade="all, delete-orphan")
     
     def __repr__(self):
         return f"<User(id={self.id}, username={self.username})>"
@@ -114,5 +115,49 @@ class Clip(Base):
     
     def __repr__(self):
         return f"<Clip(id={self.id}, session_id={self.stream_session_id}, validated={self.is_validated})>"
+
+
+class RefreshToken(Base):
+    """Refresh token model for JWT token refresh functionality."""
+    
+    __tablename__ = "refresh_tokens"
+    
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    
+    # Token hash (never store raw refresh tokens)
+    token_hash = Column(String(256), unique=True, nullable=False, index=True)
+    
+    # Token metadata
+    expires_at = Column(DateTime(timezone=True), nullable=False, index=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    revoked_at = Column(DateTime(timezone=True), nullable=True, index=True)
+    
+    # Device tracking for security
+    device_info = Column(Text, nullable=True)
+    ip_address = Column(String(45), nullable=True)  # IPv6 max length
+    user_agent = Column(Text, nullable=True)
+    
+    # Relationship to user
+    user = relationship("User", back_populates="refresh_tokens")
+    
+    @property
+    def is_expired(self) -> bool:
+        """Check if token is expired."""
+        from datetime import datetime
+        return datetime.utcnow() > self.expires_at.replace(tzinfo=None)
+    
+    @property
+    def is_revoked(self) -> bool:
+        """Check if token is revoked."""
+        return self.revoked_at is not None
+    
+    @property
+    def is_valid(self) -> bool:
+        """Check if token is valid (not expired and not revoked)."""
+        return not self.is_expired and not self.is_revoked
+    
+    def __repr__(self):
+        return f"<RefreshToken(id={self.id}, user_id={self.user_id}, valid={self.is_valid})>"
 
 

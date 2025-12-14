@@ -25,3 +25,7 @@ transformers>=4.30.0
 # Scheduler Dependencies
 apscheduler>=3.10.0
 
+# Redis and Rate Limiting
+redis>=5.0.0
+slowapi>=0.1.9
+

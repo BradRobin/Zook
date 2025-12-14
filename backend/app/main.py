@@ -12,6 +12,9 @@ from .database import init_db, AsyncSessionLocal
 from .routers import auth_routes, stream_routes, detection_routes, stream_ws_routes, query_routes
 from .services import get_detector
 from .services.cleanup_scheduler import get_cleanup_scheduler
+from .redis_client import init_redis, close_redis, redis_client
+from .rate_limiter import limiter, rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -22,10 +25,21 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     """
     Application lifespan events.
-    Initialize database, AI detection model, and cleanup scheduler on startup.
+    Initialize database, Redis, AI detection model, and cleanup scheduler on startup.
     """
     logger.info("Starting up Zook Auth Server...")
     logger.info(f"Environment: {settings.ENVIRONMENT}")
+    
+    # Initialize Redis connection
+    try:
+        await init_redis()
+        if redis_client.is_connected:
+            logger.info("✓ Redis connected successfully")
+        else:
+            logger.warning("⚠ Redis using in-memory fallback (not suitable for production)")
+    except Exception as e:
+        logger.error(f"Redis initialization failed: {e}")
+        logger.warning("Rate limiting and token blacklist will use in-memory storage")
     
     # Initialize database tables
     try:
@@ -113,6 +127,13 @@ async def lifespan(app: FastAPI):
             logger.info("Cleanup scheduler stopped")
         except Exception as e:
             logger.error(f"Error stopping cleanup scheduler: {e}")
+    
+    # Close Redis connection
+    try:
+        await close_redis()
+        logger.info("Redis connection closed")
+    except Exception as e:
+        logger.error(f"Error closing Redis: {e}")
 
 
 # Create FastAPI application
@@ -123,6 +144,11 @@ app = FastAPI(
     lifespan=lifespan
 )
 
+# Add rate limiter state to app
+app.state.limiter = limiter
+
+# Register rate limit exceeded exception handler
+app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
 
 # CORS middleware
 app.add_middleware(
@@ -236,11 +262,17 @@ async def root():
 @app.get("/health")
 async def health_check():
     """
-    Simple health check endpoint.
+    Simple health check endpoint with service status.
     """
+    from .redis_client import redis_health_check
+    
+    redis_status = await redis_health_check()
+    
     return {
         "status": "healthy",
-        "service": "zook-auth-server"
+        "service": "zook-auth-server",
+        "redis": redis_status,
+        "rate_limiting": settings.RATE_LIMIT_ENABLED
     }
 
 

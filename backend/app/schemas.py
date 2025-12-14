@@ -40,11 +40,34 @@ class UserResponse(BaseModel):
 
 # Token schemas
 class Token(BaseModel):
-    """Schema for JWT token response."""
+    """Schema for JWT token response (legacy, single token)."""
     access_token: str
     token_type: str = "bearer"
     session_id: uuid.UUID
     username: str
+    expires_in: int  # seconds
+
+
+class TokenPair(BaseModel):
+    """Schema for JWT token pair response (access + refresh)."""
+    access_token: str
+    refresh_token: str
+    token_type: str = "bearer"
+    session_id: uuid.UUID
+    username: str
+    expires_in: int  # access token expiry in seconds
+    refresh_expires_in: int  # refresh token expiry in seconds
+
+
+class RefreshTokenRequest(BaseModel):
+    """Schema for token refresh request."""
+    refresh_token: str
+
+
+class RefreshTokenResponse(BaseModel):
+    """Schema for token refresh response."""
+    access_token: str
+    token_type: str = "bearer"
     expires_in: int  # seconds
 
 
@@ -53,6 +76,13 @@ class TokenData(BaseModel):
     user_id: uuid.UUID
     username: str
     exp: datetime
+    token_type: str = "access"  # "access" or "refresh"
+
+
+class TokenBlacklistResponse(BaseModel):
+    """Schema for token blacklist status."""
+    is_blacklisted: bool
+    reason: Optional[str] = None
 
 
 # Session schemas
