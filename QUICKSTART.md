@@ -177,11 +177,41 @@ ngrok start --config config.yml --all
 - PostgreSQL database
 - Camera feed integration
 - Responsive UI
+- AI threat detection (YOLOv11 + CLIP validation)
+- WebSocket streaming
+- HTTPS encryption support
 
 🔄 **In Progress**:
-- AI threat detection
 - WebRTC streaming
 - Email notifications
+
+## 🌐 Production Deployment
+
+Ready to deploy with HTTPS? See our complete production guide:
+
+**📘 [Production Deployment Guide](docs/PRODUCTION_DEPLOYMENT.md)**
+
+Includes:
+- ✅ **Cloudflare Tunnel setup** (free HTTPS/SSL)
+- ✅ **Docker Compose** deployment
+- ✅ **Security hardening** checklist
+- ✅ **Monitoring & maintenance** guide
+- ✅ **Troubleshooting** solutions
+
+**Quick production setup:**
+
+```bash
+# 1. Set up Cloudflare Tunnel
+sudo bash backend/scripts/install_cloudflare_tunnel.sh
+
+# 2. Configure environment
+cp backend/ENV_CONFIG.md backend/.env  # Edit with your values
+
+# 3. Deploy with Docker
+docker-compose -f docker-compose.production.yml up -d
+
+# 4. Access at https://yourdomain.com
+```
 
 ## 💡 Tips
 
@@ -190,16 +220,28 @@ ngrok start --config config.yml --all
 - Frontend stores JWT in localStorage
 - Default test user: `Brad` / `12345678`
 - Sessions expire after 24 hours
+- **Production:** Enable HTTPS before deploying (see deployment guide)
 
 ## 🆘 Need Help?
 
-- Check `docs/PROJECT_DOCUMENTATION.md` for detailed info
-- Review `backend/README.md` for backend-specific help
-- Look at example requests in API docs
-- Check browser console and backend logs for errors
+- **Production Deployment:** `docs/PRODUCTION_DEPLOYMENT.md`
+- **Cloudflare Tunnel:** `backend/cloudflare-tunnel-setup.md`
+- **Environment Config:** `backend/ENV_CONFIG.md`
+- **Project Documentation:** `docs/PROJECT_DOCUMENTATION.md`
+- **Backend Details:** `backend/README.md`
+- **API Examples:** http://localhost:8000/docs
+- **Troubleshooting:** Check browser console and backend logs
 
 ---
 
 **Zook Project** - AI-Powered Surveillance Platform  
 Built with FastAPI + Vanilla JS - Ready for 24/7 Monitoring 🔒
+
+**Enterprise Features:**
+- 🔐 HTTPS encryption with Cloudflare Tunnel (zero-cost SSL)
+- 🤖 AI threat detection (YOLOv11 knife detection + CLIP validation)
+- 📹 Real-time WebSocket streaming at 15fps
+- 🗄️ PostgreSQL with automatic clip cleanup
+- 🚀 Docker-ready production deployment
+
 

@@ -139,10 +139,24 @@ app.add_middleware(
 async def https_redirect_middleware(request: Request, call_next):
     """
     Redirect HTTP to HTTPS in production environment.
+    Supports Cloudflare Tunnel with X-Forwarded-Proto header.
     """
-    if settings.ENVIRONMENT == "production":
-        if request.url.scheme == "http":
+    # Check if HTTPS enforcement is enabled
+    if settings.ENFORCE_HTTPS_REDIRECT and settings.USE_HTTPS:
+        # Check X-Forwarded-Proto header (set by Cloudflare/reverse proxies)
+        forwarded_proto = request.headers.get("X-Forwarded-Proto", "")
+        
+        # Determine actual protocol (handle Cloudflare Tunnel scenarios)
+        is_https = (
+            request.url.scheme == "https" or 
+            forwarded_proto == "https"
+        )
+        
+        # Redirect HTTP to HTTPS
+        if not is_https:
+            # Preserve query parameters and path
             url = request.url.replace(scheme="https")
+            logger.info(f"Redirecting HTTP → HTTPS: {request.url} → {url}")
             return JSONResponse(
                 status_code=301,
                 content={"detail": "Redirecting to HTTPS"},
@@ -150,6 +164,47 @@ async def https_redirect_middleware(request: Request, call_next):
             )
     
     response = await call_next(request)
+    return response
+
+
+# Security headers middleware
+@app.middleware("http")
+async def security_headers_middleware(request: Request, call_next):
+    """
+    Add security headers when HTTPS is enabled.
+    Includes HSTS, content security policy, and other hardening headers.
+    """
+    response = await call_next(request)
+    
+    # Only add security headers when HTTPS is enabled
+    if settings.USE_HTTPS:
+        # HTTP Strict Transport Security (HSTS)
+        # Tells browsers to only use HTTPS for 1 year
+        response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+        
+        # Prevent MIME type sniffing
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        
+        # Prevent clickjacking attacks
+        response.headers["X-Frame-Options"] = "DENY"
+        
+        # Content Security Policy (CSP)
+        # Allow same-origin and WebSocket connections
+        csp_policy = (
+            "default-src 'self'; "
+            "connect-src 'self' ws: wss:; "
+            "img-src 'self' data: blob:; "
+            "style-src 'self' 'unsafe-inline'; "
+            "script-src 'self' 'unsafe-inline'"
+        )
+        response.headers["Content-Security-Policy"] = csp_policy
+        
+        # Referrer policy
+        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        
+        # Permissions policy (formerly Feature-Policy)
+        response.headers["Permissions-Policy"] = "camera=*, microphone=*, geolocation=()"
+        
     return response
 
 

@@ -1,0 +1,90 @@
+# Cloudflare Tunnel Configuration Template
+# Copy this file and replace placeholders with your actual values
+
+# Tunnel ID (get from: cloudflared tunnel create zook-production)
+tunnel: YOUR_TUNNEL_ID_HERE
+
+# Path to tunnel credentials JSON file
+# Get from: ~/.cloudflared/YOUR_TUNNEL_ID.json
+credentials-file: /path/to/your/tunnel/credentials.json
+
+# Ingress rules - define how traffic is routed
+ingress:
+  # Primary domain - route to FastAPI backend
+  - hostname: zook.yourdomain.com
+    service: http://localhost:8000
+    originRequest:
+      # Don't verify TLS for localhost connections
+      noTLSVerify: true
+      
+      # Connection timeout
+      connectTimeout: 30s
+      
+      # Keep-alive settings for long-lived connections
+      tcpKeepAlive: 30s
+      keepAliveConnections: 100
+      keepAliveTimeout: 90s
+      
+      # WebSocket support (required for camera streaming)
+      disableChunkedEncoding: false
+      
+      # HTTP/2 settings
+      http2Origin: false
+  
+  # Optional: Subdomain for API
+  # - hostname: api.yourdomain.com
+  #   service: http://localhost:8000
+  #   originRequest:
+  #     noTLSVerify: true
+  
+  # Catch-all rule (REQUIRED - must be last)
+  - service: http_status:404
+
+# Automatic updates
+# Check for cloudflared updates every 24 hours
+autoupdate-freq: 24h
+
+# Logging configuration
+loglevel: info  # debug | info | warn | error
+
+# Optional: Log to file
+# logfile: /var/log/cloudflared.log
+
+# Optional: Metrics server for monitoring
+# metrics: localhost:8081
+
+# Cloudflare edge configuration
+# retries: 5
+# grace-period: 30s
+
+# Protocol configuration
+# protocol: quic  # quic | http2 | auto (default: quic)
+
+---
+
+# Quick Setup Instructions:
+#
+# 1. Create tunnel:
+#    cloudflared tunnel create zook-production
+#
+# 2. Copy tunnel ID and credentials file path from output
+#
+# 3. Update this file with your values:
+#    - Replace YOUR_TUNNEL_ID_HERE with actual tunnel ID
+#    - Replace /path/to/your/tunnel/credentials.json with actual path
+#    - Replace zook.yourdomain.com with your actual domain
+#
+# 4. Copy this file to ~/.cloudflared/config.yml
+#
+# 5. Route DNS:
+#    cloudflared tunnel route dns zook-production zook.yourdomain.com
+#
+# 6. Test tunnel:
+#    cloudflared tunnel run zook-production
+#
+# 7. Install as service:
+#    sudo cloudflared service install
+#    sudo systemctl start cloudflared
+#
+# For detailed instructions, see: cloudflare-tunnel-setup.md
+

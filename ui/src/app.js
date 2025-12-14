@@ -428,7 +428,7 @@ class RESTDetection {
  * ZookApp - Main application class
  */
 class ZookApp {
-    constructor() {
+    constructor(apiUrl = null) {
         this.isScanning = false;
         this.videoStream = null;
         this.authToken = null;
@@ -437,13 +437,16 @@ class ZookApp {
         this.restDetection = null;
         this.detectionMode = 'websocket'; // 'websocket' or 'rest'
         
-        // Auto-detect API URL based on environment
-        if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+        // Use provided API URL or auto-detect
+        if (apiUrl) {
+            this.apiUrl = apiUrl;
+            console.log('Using provided API URL:', this.apiUrl);
+        } else if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
             this.apiUrl = 'http://localhost:8000';
         } else {
             // For remote access, try to get from localStorage or prompt
             this.apiUrl = localStorage.getItem('zook_api_url') || 
-                         prompt('Please enter your backend ngrok URL (e.g., https://xxxxx.ngrok-free.dev)', 'https://');
+                         prompt('Please enter your backend URL (e.g., https://zook.yourdomain.com)', 'https://');
             if (this.apiUrl && this.apiUrl !== 'https://') {
                 localStorage.setItem('zook_api_url', this.apiUrl);
             }
@@ -1094,7 +1097,16 @@ class ZookApp {
 
 // Initialize app when DOM is loaded
 document.addEventListener('DOMContentLoaded', () => {
-    window.zookApp = new ZookApp();
+    // Use centralized config if available, otherwise fallback to localhost
+    const apiUrl = window.ZookConfig ? window.ZookConfig.API_URL : 'http://localhost:8000';
+    
+    if (window.ZookConfig) {
+        console.log('✓ Using ZookConfig:', window.ZookConfig.API_URL);
+    } else {
+        console.warn('⚠️  ZookConfig not loaded, using default:', apiUrl);
+    }
+    
+    window.zookApp = new ZookApp(apiUrl);
 });
 
 // Cleanup on page unload

@@ -4,6 +4,7 @@ WebSocket routes for real-time video streaming and detection.
 Provides WebSocket endpoint for continuous frame streaming from frontend,
 processes frames at 15fps with YOLOv11, and returns detection results in real-time.
 Includes post-session cleanup with CLIP validation for false positive removal.
+Supports both WS and WSS (secure WebSocket) protocols.
 """
 import logging
 import asyncio
@@ -17,6 +18,7 @@ from ..database import get_db
 from ..auth import decode_token
 from ..services.session_manager import get_session_manager, StreamSession
 from ..services.stream_processor import process_stream
+from ..config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -141,6 +143,78 @@ async def verify_websocket_token(token: str, db: AsyncSession) -> tuple[str, str
         raise
 
 
+def validate_websocket_origin(websocket: WebSocket) -> bool:
+    """
+    Validate WebSocket Origin header for security.
+    
+    Checks that the Origin header matches allowed CORS origins.
+    Protects against unauthorized cross-origin WebSocket connections.
+    
+    Args:
+        websocket: WebSocket connection object
+        
+    Returns:
+        True if origin is valid, False otherwise
+    """
+    # Get Origin header
+    origin = websocket.headers.get("origin", "")
+    
+    # In development without HTTPS, allow any localhost origin
+    if settings.ENVIRONMENT == "development":
+        if "localhost" in origin or "127.0.0.1" in origin:
+            logger.debug(f"Development mode: Allowing origin {origin}")
+            return True
+    
+    # Check against allowed CORS origins
+    allowed_origins = settings.CORS_ORIGINS
+    
+    if origin in allowed_origins:
+        logger.debug(f"Valid origin: {origin}")
+        return True
+    
+    # If PRODUCTION_URL is set, allow it
+    if settings.PRODUCTION_URL and origin == settings.PRODUCTION_URL:
+        logger.debug(f"Valid production origin: {origin}")
+        return True
+    
+    logger.warning(f"Invalid WebSocket origin: {origin}")
+    return False
+
+
+def log_websocket_connection_info(websocket: WebSocket):
+    """
+    Log WebSocket connection details for debugging and security monitoring.
+    
+    Args:
+        websocket: WebSocket connection object
+    """
+    # Determine protocol (WS vs WSS)
+    forwarded_proto = websocket.headers.get("x-forwarded-proto", "")
+    is_secure = (
+        forwarded_proto == "https" or 
+        websocket.url.scheme == "wss"
+    )
+    protocol = "WSS (secure)" if is_secure else "WS (insecure)"
+    
+    # Get client info
+    client_host = websocket.client.host if websocket.client else "unknown"
+    origin = websocket.headers.get("origin", "none")
+    user_agent = websocket.headers.get("user-agent", "unknown")
+    
+    logger.info(
+        f"WebSocket connection: protocol={protocol}, "
+        f"client={client_host}, origin={origin}, "
+        f"user-agent={user_agent[:50]}..."
+    )
+    
+    # Warn if using insecure WS in production
+    if settings.ENVIRONMENT == "production" and not is_secure:
+        logger.warning(
+            "⚠️  Insecure WebSocket (WS) connection in production! "
+            "Should use WSS. Check Cloudflare Tunnel or reverse proxy config."
+        )
+
+
 @router.websocket("/ws/stream")
 async def stream_endpoint(
     websocket: WebSocket,
@@ -152,8 +226,15 @@ async def stream_endpoint(
     
     **Connection:**
     ```
-    ws://localhost:8000/ws/stream?token=YOUR_JWT_TOKEN
+    ws://localhost:8000/ws/stream?token=YOUR_JWT_TOKEN   # Development
+    wss://yourdomain.com/ws/stream?token=YOUR_JWT_TOKEN  # Production
     ```
+    
+    **Security:**
+    - Supports both WS (development) and WSS (production) protocols
+    - JWT authentication required
+    - Origin validation against CORS_ORIGINS
+    - X-Forwarded-Proto header support for Cloudflare Tunnel
     
     **Client → Server:**
     - Binary frames (JPEG format)
@@ -175,11 +256,12 @@ async def stream_endpoint(
     
     **Lifecycle:**
     1. Client connects with JWT token
-    2. Server validates token and creates session
-    3. Client streams frames continuously
-    4. Server processes at 15fps, returns results
-    5. After 5 min without detection → auto-disconnect
-    6. Client can reconnect as needed
+    2. Server validates token and origin
+    3. Server creates session and logs connection protocol (WS/WSS)
+    4. Client streams frames continuously
+    5. Server processes at 15fps, returns results
+    6. After 5 min without detection → auto-disconnect
+    7. Client can reconnect as needed
     
     **Example Response:**
     ```json
@@ -202,6 +284,7 @@ async def stream_endpoint(
     
     **Error Handling:**
     - Invalid token → Close with code 4001
+    - Invalid origin → Close with code 4003  
     - Server error → Close with code 1011
     - Idle timeout → Close with code 1000 (normal)
     - Client disconnect → Cleanup automatically
@@ -211,6 +294,18 @@ async def stream_endpoint(
     processor = None
     
     try:
+        # Log connection details (protocol, client, origin)
+        log_websocket_connection_info(websocket)
+        
+        # Validate Origin header
+        if not validate_websocket_origin(websocket):
+            logger.warning(
+                f"WebSocket rejected: Invalid origin "
+                f"{websocket.headers.get('origin', 'none')}"
+            )
+            await websocket.close(code=4003)  # Custom code for forbidden origin
+            return
+        
         # Verify JWT token
         logger.info("WebSocket connection attempt")
         try:
@@ -231,13 +326,18 @@ async def stream_endpoint(
         # Start frame processor
         processor = await process_stream(session, target_fps=15)
         
-        # Send welcome message
+        # Send welcome message with protocol info
+        forwarded_proto = websocket.headers.get("x-forwarded-proto", "")
+        is_secure = forwarded_proto == "https" or websocket.url.scheme == "wss"
+        
         await websocket.send_json({
             'type': 'connected',
             'session_id': session.session_id,
             'message': 'Stream connected successfully',
             'target_fps': 15,
-            'idle_timeout_minutes': session.idle_timeout_seconds / 60
+            'idle_timeout_minutes': session.idle_timeout_seconds / 60,
+            'secure_connection': is_secure,
+            'protocol': 'WSS' if is_secure else 'WS'
         })
         
         # Main loop - receive frames from client

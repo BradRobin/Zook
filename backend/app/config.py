@@ -37,6 +37,17 @@ class Settings(BaseSettings):
     CUSTOM_MODEL_PATH: Optional[str] = "app/models/custom_knife_model.pt"
     DETECTION_DEVICE: str = "cpu"
     DETECTION_CONFIDENCE_THRESHOLD: float = 0.90
+    
+    # HTTPS & Production Configuration
+    USE_HTTPS: bool = False
+    ENFORCE_HTTPS_REDIRECT: bool = False
+    CLOUDFLARE_TUNNEL_ENABLED: bool = False
+    PRODUCTION_URL: Optional[str] = None
+    SSL_CERT_PATH: Optional[str] = None
+    SSL_KEY_PATH: Optional[str] = None
+    
+    # Database Security
+    DATABASE_SSL_MODE: str = "prefer"  # prefer | require | verify-full
 
 
 # Global settings instance
