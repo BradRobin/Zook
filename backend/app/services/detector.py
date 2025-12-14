@@ -20,6 +20,13 @@ from PIL import Image
 import numpy as np
 from ultralytics import YOLO
 
+from ..metrics import (
+    YOLO_DETECTION_LATENCY, YOLO_DETECTION_CONFIDENCE,
+    DETECTIONS_TOTAL, SLOW_DETECTIONS,
+    record_detection
+)
+from ..config import settings
+
 logger = logging.getLogger(__name__)
 
 
@@ -214,6 +221,7 @@ class ThreatDetector:
         
         try:
             # Run inference
+            inference_start = time.perf_counter()
             results = self.model.predict(
                 image_array,
                 conf=self.confidence_threshold,
@@ -221,8 +229,18 @@ class ThreatDetector:
                 verbose=False,
                 imgsz=640
             )
+            inference_duration = time.perf_counter() - inference_start
             
-            inference_time = (time.time() - start_time) * 1000  # Convert to ms
+            # Record metrics
+            inference_time = inference_duration * 1000  # Convert to ms
+            YOLO_DETECTION_LATENCY.observe(inference_duration)
+            
+            # Track slow detections (>30ms threshold)
+            slow_threshold_ms = getattr(settings, 'SLOW_DETECTION_THRESHOLD_MS', 30)
+            if inference_time > slow_threshold_ms:
+                SLOW_DETECTIONS.inc()
+                logger.warning(f"Slow detection: {inference_time:.2f}ms (threshold: {slow_threshold_ms}ms)")
+            
             logger.info(f"Inference completed in {inference_time:.2f}ms")
             
             # Parse results
@@ -260,6 +278,11 @@ class ThreatDetector:
                                 bbox=bbox
                             )
                             threats.append(threat)
+                            
+                            # Record detection metrics
+                            YOLO_DETECTION_CONFIDENCE.observe(confidence)
+                            DETECTIONS_TOTAL.labels(threat_type='knife').inc()
+                            record_detection(confidence, 'knife')
                             
                             logger.info(f"✓ Knife detected with {confidence:.2%} confidence (ABOVE threshold)")
                         else:

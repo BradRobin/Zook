@@ -14,7 +14,9 @@ from .services import get_detector
 from .services.cleanup_scheduler import get_cleanup_scheduler
 from .redis_client import init_redis, close_redis, redis_client
 from .rate_limiter import limiter, rate_limit_exceeded_handler
+from .metrics import setup_metrics, update_redis_status, update_model_status, APP_START_TIME
 from slowapi.errors import RateLimitExceeded
+import time
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -35,11 +37,14 @@ async def lifespan(app: FastAPI):
         await init_redis()
         if redis_client.is_connected:
             logger.info("✓ Redis connected successfully")
+            update_redis_status(True)
         else:
             logger.warning("⚠ Redis using in-memory fallback (not suitable for production)")
+            update_redis_status(False)
     except Exception as e:
         logger.error(f"Redis initialization failed: {e}")
         logger.warning("Rate limiting and token blacklist will use in-memory storage")
+        update_redis_status(False)
     
     # Initialize database tables
     try:
@@ -77,12 +82,15 @@ async def lifespan(app: FastAPI):
         
         if model_info['model_type'] == 'custom':
             logger.info("✓ Using custom-trained knife detection model")
+            update_model_status("yolo", True)
         else:
             logger.info("✓ Using COCO pre-trained model (consider training custom model for >90% accuracy)")
+            update_model_status("yolo", True)
             
     except Exception as e:
         logger.error(f"Detection model initialization failed: {e}")
         logger.warning("Server will start but detection endpoint may not work")
+        update_model_status("yolo", False)
     
     # Initialize CLIP validator
     try:
@@ -93,10 +101,12 @@ async def lifespan(app: FastAPI):
         logger.info("CLIP validator initialized successfully")
         validator_info = validator.get_validator_info()
         logger.info(f"CLIP model: {validator_info['model_name']}")
+        update_model_status("clip", True)
         
     except Exception as e:
         logger.error(f"CLIP validator initialization failed: {e}")
         logger.warning("Clip validation may not work properly")
+        update_model_status("clip", False)
     
     # Initialize and start cleanup scheduler
     cleanup_scheduler = None
@@ -149,6 +159,11 @@ app.state.limiter = limiter
 
 # Register rate limit exceeded exception handler
 app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
+
+# Setup Prometheus metrics
+if settings.METRICS_ENABLED:
+    setup_metrics(app)
+    logger.info("✓ Prometheus metrics enabled")
 
 # CORS middleware
 app.add_middleware(
@@ -262,17 +277,65 @@ async def root():
 @app.get("/health")
 async def health_check():
     """
-    Simple health check endpoint with service status.
+    Comprehensive health check endpoint with component status and metrics.
+    
+    Returns detailed status for:
+    - Database connectivity
+    - Redis connectivity  
+    - YOLO model status
+    - CLIP model status
+    - Active sessions
+    - Uptime
     """
     from .redis_client import redis_health_check
+    from .services.metrics_collector import get_health_metrics
     
+    # Get component health
     redis_status = await redis_health_check()
     
+    # Get health metrics
+    try:
+        health_metrics = await get_health_metrics()
+    except Exception:
+        health_metrics = {}
+    
+    # Calculate uptime
+    uptime_seconds = time.time() - APP_START_TIME._value._value if APP_START_TIME._value._value else 0
+    
+    # Build detailed response
+    components = {
+        "redis": {
+            "status": "up" if redis_status.get("connected") else "degraded",
+            "fallback_mode": redis_status.get("fallback_mode", False)
+        }
+    }
+    
+    # Add database status if available
+    if "database" in health_metrics:
+        components["database"] = health_metrics["database"]
+    
+    # Add model status if available
+    if "yolo_model" in health_metrics:
+        components["yolo_model"] = health_metrics["yolo_model"]
+    if "clip_model" in health_metrics:
+        components["clip_model"] = health_metrics["clip_model"]
+    
+    # Overall status
+    overall_status = "healthy"
+    if not redis_status.get("connected") and not redis_status.get("fallback_mode"):
+        overall_status = "degraded"
+    
     return {
-        "status": "healthy",
+        "status": overall_status,
         "service": "zook-auth-server",
-        "redis": redis_status,
-        "rate_limiting": settings.RATE_LIMIT_ENABLED
+        "environment": settings.ENVIRONMENT,
+        "components": components,
+        "metrics": {
+            "active_sessions": health_metrics.get("active_sessions", 0),
+            "uptime_seconds": int(uptime_seconds),
+            "rate_limiting_enabled": settings.RATE_LIMIT_ENABLED,
+            "metrics_enabled": settings.METRICS_ENABLED
+        }
     }
 
 

@@ -2,6 +2,7 @@
 Stream Frame Processor for real-time video detection.
 
 Handles frame downsampling, async processing queue, and detection coordination.
+Includes Prometheus metrics for monitoring performance.
 """
 import asyncio
 import logging
@@ -11,6 +12,11 @@ from datetime import datetime
 
 from .session_manager import StreamSession
 from .detector import get_detector
+from .metrics_collector import get_metrics_collector
+from ..metrics import (
+    FRAMES_PROCESSED, FRAMES_DROPPED, DETECTION_FPS,
+    record_frame_processed, record_frame_dropped
+)
 
 logger = logging.getLogger(__name__)
 
@@ -60,9 +66,13 @@ class FrameDownsampler:
         if time_since_last >= self.frame_interval or self.last_frame_time == 0:
             self.last_frame_time = current_time
             self.frames_processed += 1
+            # Record frame processed metric (sampled at 10%)
+            FRAMES_PROCESSED.inc()
             return True
         else:
             self.frames_skipped += 1
+            # Record dropped frame
+            FRAMES_DROPPED.inc()
             return False
     
     def get_actual_fps(self) -> float:
@@ -114,6 +124,14 @@ class StreamProcessor:
         self.detector = get_detector()
         self.is_running = False
         self._process_task: Optional[asyncio.Task] = None
+        self._metrics_collector = get_metrics_collector()
+        self._last_fps_update = time.time()
+        
+        # Register session with metrics collector
+        self._metrics_collector.register_session(
+            session.session_id, 
+            session.user_id
+        )
         
         logger.info(f"StreamProcessor created for session {session.session_id}")
     
@@ -127,7 +145,7 @@ class StreamProcessor:
         self._process_task = asyncio.create_task(self._process_loop())
         logger.info(f"StreamProcessor started for session {self.session.session_id}")
     
-    async def stop(self):
+    async def stop(self, reason: str = "disconnect"):
         """Stop the frame processing loop."""
         self.is_running = False
         
@@ -138,7 +156,16 @@ class StreamProcessor:
             except asyncio.CancelledError:
                 pass
         
-        logger.info(f"StreamProcessor stopped for session {self.session.session_id}")
+        # Unregister session from metrics collector
+        duration = self._metrics_collector.unregister_session(
+            self.session.session_id,
+            reason=reason
+        )
+        
+        logger.info(
+            f"StreamProcessor stopped for session {self.session.session_id} "
+            f"(duration: {duration:.1f}s, reason: {reason})"
+        )
     
     async def _process_loop(self):
         """
@@ -196,9 +223,21 @@ class StreamProcessor:
             
             processing_time = (time.time() - start_time) * 1000  # Convert to ms
             
+            # Update metrics
+            self._metrics_collector.record_session_frame(self.session.session_id)
+            self._metrics_collector.record_detection_latency(processing_time / 1000)
+            
+            # Update FPS gauge every second
+            now = time.time()
+            if now - self._last_fps_update >= 1.0:
+                fps = self.downsampler.get_actual_fps()
+                DETECTION_FPS.set(fps)
+                self._last_fps_update = now
+            
             # Register detection if threats found
             if threats:
                 self.session.register_detection(len(threats))
+                self._metrics_collector.record_session_detection(self.session.session_id)
                 
                 # Call detection callback if provided
                 if self.on_detection:

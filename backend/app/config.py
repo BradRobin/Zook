@@ -61,6 +61,13 @@ class Settings(BaseSettings):
     
     # Database Security
     DATABASE_SSL_MODE: str = "prefer"  # prefer | require | verify-full
+    
+    # Monitoring Configuration
+    METRICS_ENABLED: bool = True
+    METRICS_PREFIX: str = "zook"
+    SLOW_DETECTION_THRESHOLD_MS: int = 30
+    STORAGE_ALERT_THRESHOLD_PERCENT: int = 80
+    METRICS_SAMPLE_RATE: float = 0.1  # Sample 10% of high-frequency metrics
 
 
 # Global settings instance

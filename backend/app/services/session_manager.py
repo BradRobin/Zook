@@ -4,15 +4,23 @@ Stream Session Manager for WebSocket connections.
 Manages active video streaming sessions, handles timeouts, coordinates
 between WebSocket connections, frame processing, and recording.
 Persists session data to database for tracking and cleanup.
+Includes Prometheus metrics for session monitoring.
 """
 import asyncio
 import logging
+import time
 import uuid
 from datetime import datetime, timedelta
 from typing import Dict, Optional
 from fastapi import WebSocket
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
+
+from ..metrics import (
+    ACTIVE_SESSIONS, SESSIONS_CREATED, SESSION_DURATION,
+    SESSION_TERMINATIONS, WEBSOCKET_CONNECTIONS,
+    record_session_start, record_session_end
+)
 
 logger = logging.getLogger(__name__)
 
@@ -331,6 +339,10 @@ class SessionManager:
         self.sessions: Dict[str, StreamSession] = {}
         self.timeout_check_interval = 30  # Check every 30 seconds
         self._monitor_task: Optional[asyncio.Task] = None
+        
+        # Initialize session metrics
+        ACTIVE_SESSIONS.set(0)
+        WEBSOCKET_CONNECTIONS.set(0)
         logger.info("SessionManager initialized")
     
     def create_session(
@@ -353,6 +365,10 @@ class SessionManager:
         session_id = str(uuid.uuid4())
         session = StreamSession(session_id, user_id, websocket, db)
         self.sessions[session_id] = session
+        
+        # Record metrics
+        record_session_start()
+        WEBSOCKET_CONNECTIONS.inc()
         
         logger.info(f"Session created: {session_id} (total active: {len(self.sessions)})")
         
@@ -380,8 +396,19 @@ class SessionManager:
         """
         session = self.sessions.pop(session_id, None)
         if session:
+            # Calculate session duration
+            duration = (datetime.utcnow() - session.start_time).total_seconds()
+            
             await session.cleanup(reason)
-            logger.info(f"Session removed: {session_id} (remaining: {len(self.sessions)})")
+            
+            # Record metrics
+            record_session_end(duration, reason)
+            WEBSOCKET_CONNECTIONS.dec()
+            
+            logger.info(
+                f"Session removed: {session_id} "
+                f"(duration: {duration:.1f}s, reason: {reason}, remaining: {len(self.sessions)})"
+            )
     
     async def _monitor_sessions(self):
         """
