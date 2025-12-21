@@ -680,3 +680,269 @@ body {
     background: var(--alert-red);
     color: var(--bg-white);
 }
+
+/* =============================================================================
+   Video Status Overlay - Camera Permission & Loading States
+   ============================================================================= */
+
+.video-status-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.85);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 20;
+    opacity: 1;
+    transition: opacity 0.3s ease;
+}
+
+.video-status-overlay.hidden {
+    opacity: 0;
+    pointer-events: none;
+}
+
+.video-status-overlay.fade-out {
+    opacity: 0;
+}
+
+.status-content {
+    text-align: center;
+    color: #ffffff;
+    padding: 2rem;
+    max-width: 320px;
+}
+
+/* Status Icons */
+.status-icon {
+    margin-bottom: 1.5rem;
+}
+
+.status-icon .icon {
+    width: 64px;
+    height: 64px;
+    stroke-width: 1.5;
+}
+
+.status-icon .icon-camera {
+    color: var(--accent-green);
+    animation: camera-pulse 2s ease-in-out infinite;
+}
+
+.status-icon .icon-error {
+    color: var(--alert-red);
+}
+
+.status-icon .icon-success {
+    color: var(--accent-green);
+}
+
+.status-icon .icon-ai {
+    color: #00d4ff;
+}
+
+.status-icon .icon-wifi {
+    color: #ffa500;
+}
+
+@keyframes camera-pulse {
+    0%, 100% {
+        opacity: 1;
+        transform: scale(1);
+    }
+    50% {
+        opacity: 0.6;
+        transform: scale(1.05);
+    }
+}
+
+/* Spinner */
+.spinner {
+    width: 48px;
+    height: 48px;
+    border: 3px solid rgba(255, 255, 255, 0.2);
+    border-top-color: var(--accent-green);
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+    margin: 0 auto 1.5rem auto;
+}
+
+.spinner.spinner-small {
+    width: 24px;
+    height: 24px;
+    border-width: 2px;
+    margin-bottom: 1rem;
+}
+
+@keyframes spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+/* State: Initializing - Blue spinner */
+.video-status-overlay.state-initializing .spinner {
+    border-top-color: #00d4ff;
+}
+
+/* State: Connecting - Orange spinner */
+.video-status-overlay.state-connecting .spinner {
+    border-top-color: #ffa500;
+}
+
+/* State: Error - Red spinner (if shown) */
+.video-status-overlay.state-denied .spinner {
+    border-top-color: var(--alert-red);
+}
+
+/* Status Text */
+.status-title {
+    font-family: var(--monospace);
+    font-size: 1.1rem;
+    font-weight: 600;
+    margin-bottom: 0.5rem;
+    color: #ffffff;
+}
+
+.status-message {
+    font-family: var(--monospace);
+    font-size: 0.85rem;
+    color: rgba(255, 255, 255, 0.7);
+    margin-bottom: 1.5rem;
+    line-height: 1.5;
+}
+
+/* Action Button */
+.status-action-btn {
+    font-family: var(--monospace);
+    font-size: 0.9rem;
+    padding: 0.75rem 2rem;
+    border: 2px solid var(--accent-green);
+    background: transparent;
+    color: var(--accent-green);
+    cursor: pointer;
+    transition: all 0.2s ease;
+    margin-top: 0.5rem;
+}
+
+.status-action-btn:hover {
+    background: var(--accent-green);
+    color: #000;
+}
+
+.status-action-btn:focus {
+    outline: 2px solid var(--accent-green);
+    outline-offset: 2px;
+}
+
+/* Retry button in error state */
+.video-status-overlay.state-denied .status-action-btn {
+    border-color: #ffffff;
+    color: #ffffff;
+}
+
+.video-status-overlay.state-denied .status-action-btn:hover {
+    background: #ffffff;
+    color: #000;
+}
+
+/* Progress dots animation */
+.progress-dots {
+    display: inline-block;
+}
+
+.progress-dots::after {
+    content: '';
+    animation: dots 1.5s steps(4, end) infinite;
+}
+
+@keyframes dots {
+    0%, 20% { content: ''; }
+    40% { content: '.'; }
+    60% { content: '..'; }
+    80%, 100% { content: '...'; }
+}
+
+/* State-specific styling */
+.video-status-overlay.state-requesting .status-title {
+    color: var(--accent-green);
+}
+
+.video-status-overlay.state-denied .status-title {
+    color: var(--alert-red);
+}
+
+.video-status-overlay.state-initializing .status-title {
+    color: #00d4ff;
+}
+
+.video-status-overlay.state-connecting .status-title {
+    color: #ffa500;
+}
+
+.video-status-overlay.state-ready .status-title {
+    color: var(--accent-green);
+}
+
+/* Helper text styling */
+.status-helper {
+    font-size: 0.75rem;
+    color: rgba(255, 255, 255, 0.5);
+    margin-top: 1rem;
+    font-style: italic;
+}
+
+/* Browser-specific permission hint */
+.permission-hint {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    margin-top: 1rem;
+    padding: 0.5rem 1rem;
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 4px;
+    font-size: 0.8rem;
+    color: rgba(255, 255, 255, 0.8);
+}
+
+.permission-hint .hint-arrow {
+    animation: bounce-up 1s ease-in-out infinite;
+}
+
+@keyframes bounce-up {
+    0%, 100% {
+        transform: translateY(0);
+    }
+    50% {
+        transform: translateY(-4px);
+    }
+}
+
+/* Mobile responsive */
+@media (max-width: 480px) {
+    .status-content {
+        padding: 1.5rem;
+    }
+    
+    .status-icon .icon {
+        width: 48px;
+        height: 48px;
+    }
+    
+    .spinner {
+        width: 40px;
+        height: 40px;
+    }
+    
+    .status-title {
+        font-size: 1rem;
+    }
+    
+    .status-message {
+        font-size: 0.8rem;
+    }
+}

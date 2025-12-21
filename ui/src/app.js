@@ -1,6 +1,297 @@
 // Zook MVP - Vanilla JavaScript Application Logic with WebSocket Streaming
 
 /**
+ * CameraStateManager - Manages visual states for camera permission and loading
+ * 
+ * Handles UI states for:
+ * - Requesting camera permission
+ * - Permission denied (with retry)
+ * - AI model initializing
+ * - Connecting to detection service
+ * - Ready/Live feed
+ */
+class CameraStateManager {
+    constructor(overlayElement) {
+        this.overlay = overlayElement;
+        this.spinner = document.getElementById('status-spinner');
+        this.icon = document.getElementById('status-icon');
+        this.title = document.getElementById('status-title');
+        this.message = document.getElementById('status-message');
+        this.actionBtn = document.getElementById('status-action');
+        
+        // Icon elements
+        this.iconCamera = document.getElementById('icon-camera');
+        this.iconError = document.getElementById('icon-error');
+        this.iconSuccess = document.getElementById('icon-success');
+        this.iconAi = document.getElementById('icon-ai');
+        this.iconWifi = document.getElementById('icon-wifi');
+        
+        // Current state
+        this.currentState = 'hidden';
+        
+        // Retry callback
+        this._onRetry = null;
+    }
+    
+    /**
+     * Set the current state of the overlay
+     * @param {string} state - One of: 'hidden', 'requesting', 'denied', 'initializing', 'connecting', 'ready', 'error'
+     * @param {object} options - Additional options like message, onRetry callback
+     */
+    setState(state, options = {}) {
+        this.currentState = state;
+        
+        // Remove all state classes
+        this.overlay.classList.remove(
+            'state-requesting', 'state-denied', 'state-initializing', 
+            'state-connecting', 'state-ready', 'state-error'
+        );
+        
+        // Hide all icons
+        this._hideAllIcons();
+        
+        // Reset elements
+        this.spinner.classList.add('hidden');
+        this.icon.classList.add('hidden');
+        this.actionBtn.classList.add('hidden');
+        this.title.textContent = '';
+        this.message.textContent = '';
+        
+        switch (state) {
+            case 'hidden':
+                this.hide();
+                break;
+            case 'requesting':
+                this._showRequestingPermission();
+                break;
+            case 'denied':
+                this._showPermissionDenied(options.onRetry);
+                break;
+            case 'initializing':
+                this._showModelInitializing();
+                break;
+            case 'connecting':
+                this._showConnecting();
+                break;
+            case 'ready':
+                this._showReady();
+                break;
+            case 'error':
+                this._showError(options.message, options.onRetry);
+                break;
+        }
+    }
+    
+    _hideAllIcons() {
+        if (this.iconCamera) this.iconCamera.classList.add('hidden');
+        if (this.iconError) this.iconError.classList.add('hidden');
+        if (this.iconSuccess) this.iconSuccess.classList.add('hidden');
+        if (this.iconAi) this.iconAi.classList.add('hidden');
+        if (this.iconWifi) this.iconWifi.classList.add('hidden');
+    }
+    
+    _showIcon(iconElement) {
+        if (iconElement) {
+            this.icon.classList.remove('hidden');
+            iconElement.classList.remove('hidden');
+        }
+    }
+    
+    /**
+     * Show requesting camera permission state
+     */
+    showRequestingPermission() {
+        this.setState('requesting');
+    }
+    
+    _showRequestingPermission() {
+        this.overlay.classList.remove('hidden');
+        this.overlay.classList.add('state-requesting');
+        
+        // Show camera icon with pulse animation
+        this._showIcon(this.iconCamera);
+        
+        // Show spinner
+        this.spinner.classList.remove('hidden');
+        
+        this.title.textContent = 'Requesting Camera Access...';
+        this.message.innerHTML = 'Click <strong>"Allow"</strong> when your browser prompts you';
+        
+        console.log('📷 Camera state: Requesting permission');
+    }
+    
+    /**
+     * Show permission denied state with retry option
+     */
+    showPermissionDenied(onRetry) {
+        this.setState('denied', { onRetry });
+    }
+    
+    _showPermissionDenied(onRetry) {
+        this.overlay.classList.remove('hidden');
+        this.overlay.classList.add('state-denied');
+        
+        // Show error icon
+        this._showIcon(this.iconError);
+        
+        this.title.textContent = 'Camera Access Denied';
+        this.message.innerHTML = `
+            Zook needs camera access to detect threats in real-time.
+            <br><br>
+            <span style="font-size: 0.75rem; opacity: 0.7;">
+                Tip: Check your browser's address bar for camera settings
+            </span>
+        `;
+        
+        // Show retry button
+        if (onRetry) {
+            this._onRetry = onRetry;
+            this.actionBtn.textContent = 'Try Again';
+            this.actionBtn.classList.remove('hidden');
+            this.actionBtn.onclick = () => {
+                if (this._onRetry) this._onRetry();
+            };
+        }
+        
+        console.log('❌ Camera state: Permission denied');
+    }
+    
+    /**
+     * Show AI model initializing state
+     */
+    showModelInitializing() {
+        this.setState('initializing');
+    }
+    
+    _showModelInitializing() {
+        this.overlay.classList.remove('hidden');
+        this.overlay.classList.add('state-initializing');
+        
+        // Show AI icon
+        this._showIcon(this.iconAi);
+        
+        // Show spinner
+        this.spinner.classList.remove('hidden');
+        
+        this.title.textContent = 'Initializing AI Model...';
+        this.message.innerHTML = `
+            Loading threat detection engine
+            <br>
+            <span style="font-size: 0.75rem; opacity: 0.7;">
+                First load may take 10-15 seconds
+            </span>
+        `;
+        
+        console.log('🤖 Camera state: Model initializing');
+    }
+    
+    /**
+     * Show connecting to detection service state
+     */
+    showConnecting() {
+        this.setState('connecting');
+    }
+    
+    _showConnecting() {
+        this.overlay.classList.remove('hidden');
+        this.overlay.classList.add('state-connecting');
+        
+        // Show wifi icon
+        this._showIcon(this.iconWifi);
+        
+        // Show spinner
+        this.spinner.classList.remove('hidden');
+        
+        this.title.textContent = 'Connecting to Server...';
+        this.message.textContent = 'Establishing secure connection';
+        
+        console.log('🔌 Camera state: Connecting');
+    }
+    
+    /**
+     * Show ready/success state briefly before hiding
+     */
+    showReady() {
+        this.setState('ready');
+    }
+    
+    _showReady() {
+        this.overlay.classList.remove('hidden');
+        this.overlay.classList.add('state-ready');
+        
+        // Show success icon
+        this._showIcon(this.iconSuccess);
+        
+        this.title.textContent = 'Connected!';
+        this.message.textContent = 'Live detection active';
+        
+        console.log('✅ Camera state: Ready');
+        
+        // Auto-hide after brief delay
+        setTimeout(() => {
+            this.hide();
+        }, 1000);
+    }
+    
+    /**
+     * Show generic error state
+     */
+    showError(errorMessage, onRetry) {
+        this.setState('error', { message: errorMessage, onRetry });
+    }
+    
+    _showError(errorMessage, onRetry) {
+        this.overlay.classList.remove('hidden');
+        this.overlay.classList.add('state-error', 'state-denied');
+        
+        // Show error icon
+        this._showIcon(this.iconError);
+        
+        this.title.textContent = 'Connection Error';
+        this.message.textContent = errorMessage || 'Something went wrong. Please try again.';
+        
+        // Show retry button
+        if (onRetry) {
+            this._onRetry = onRetry;
+            this.actionBtn.textContent = 'Retry';
+            this.actionBtn.classList.remove('hidden');
+            this.actionBtn.onclick = () => {
+                if (this._onRetry) this._onRetry();
+            };
+        }
+        
+        console.log('❌ Camera state: Error -', errorMessage);
+    }
+    
+    /**
+     * Hide the overlay with fade animation
+     */
+    hide() {
+        this.overlay.classList.add('fade-out');
+        
+        setTimeout(() => {
+            this.overlay.classList.add('hidden');
+            this.overlay.classList.remove('fade-out');
+            // Remove all state classes
+            this.overlay.classList.remove(
+                'state-requesting', 'state-denied', 'state-initializing', 
+                'state-connecting', 'state-ready', 'state-error'
+            );
+        }, 300);
+        
+        this.currentState = 'hidden';
+        console.log('👁️ Camera state: Hidden (live feed visible)');
+    }
+    
+    /**
+     * Check if overlay is currently visible
+     */
+    isVisible() {
+        return this.currentState !== 'hidden';
+    }
+}
+
+/**
  * StreamingDetection - Real-time video streaming with WebSocket
  * 
  * Handles continuous frame streaming at 30fps to backend,
@@ -436,6 +727,7 @@ class ZookApp {
         this.streamingDetection = null;
         this.restDetection = null;
         this.detectionMode = 'websocket'; // 'websocket' or 'rest'
+        this.cameraState = null; // Camera state manager for UX feedback
         
         // Use provided API URL or auto-detect
         if (apiUrl) {
@@ -754,12 +1046,59 @@ class ZookApp {
         document.getElementById('landing-page').classList.add('hidden');
         document.getElementById('dashboard-page').classList.remove('hidden');
 
+        // Initialize camera state manager
+        if (!this.cameraState) {
+            this.cameraState = new CameraStateManager(
+                document.getElementById('video-status-overlay')
+            );
+        }
+        
+        // Step 1: Request camera permission
+        this.cameraState.showRequestingPermission();
+
         try {
+            // Step 2: Start camera (this triggers browser permission prompt)
             await this.startCamera();
+            this.addLogEntry('Camera access granted', 'info');
+            
+            // Step 3: Show AI model initializing
+            this.cameraState.showModelInitializing();
+            
+            // Step 4: Connect to detection service
             await this.startScanning();
+            
+            // Step 5: Show ready state briefly, then hide overlay
+            this.cameraState.showReady();
+            
         } catch (error) {
-            console.error('Camera error:', error);
-            this.addLogEntry('Camera access denied or unavailable', 'error');
+            console.error('Camera/connection error:', error);
+            
+            // Determine error type and show appropriate state
+            if (error.name === 'NotAllowedError' || 
+                error.name === 'PermissionDeniedError' ||
+                error.message.includes('denied') ||
+                error.message.includes('Permission')) {
+                // Camera permission denied
+                this.cameraState.showPermissionDenied(() => {
+                    // Retry callback - re-attempt the whole flow
+                    this.showDashboard();
+                });
+                this.addLogEntry('Camera access denied', 'error');
+            } else if (error.message.includes('WebSocket') || 
+                       error.message.includes('connect') ||
+                       error.message.includes('network')) {
+                // Connection error
+                this.cameraState.showError('Unable to connect to detection server', () => {
+                    this.showDashboard();
+                });
+                this.addLogEntry('Server connection failed', 'error');
+            } else {
+                // Generic error
+                this.cameraState.showError(error.message || 'Camera unavailable', () => {
+                    this.showDashboard();
+                });
+                this.addLogEntry('Camera error: ' + error.message, 'error');
+            }
         }
     }
 
@@ -775,9 +1114,22 @@ class ZookApp {
             const videoElement = document.getElementById('feed');
             videoElement.srcObject = this.videoStream;
             
-            this.addLogEntry('Camera feed active', 'info');
+            // Wait for video to be ready
+            await new Promise((resolve) => {
+                if (videoElement.readyState >= 2) {
+                    resolve();
+                } else {
+                    videoElement.onloadeddata = resolve;
+                }
+            });
+            
         } catch (error) {
-            throw new Error('Camera access denied or unavailable');
+            // Preserve the original error for proper state handling
+            // NotAllowedError = user denied permission
+            // NotFoundError = no camera available
+            // NotReadableError = camera in use by another app
+            console.error('Camera access error:', error.name, error.message);
+            throw error;
         }
     }
 
@@ -838,6 +1190,11 @@ class ZookApp {
         } else {
             // WebSocket mode - real-time streaming (default)
             this.addLogEntry('Connecting to real-time detection service...', 'info');
+            
+            // Show connecting state if camera state manager is available
+            if (this.cameraState && this.cameraState.isVisible()) {
+                this.cameraState.showConnecting();
+            }
 
             try {
                 // Create streaming detection instance
