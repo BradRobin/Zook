@@ -252,14 +252,76 @@ body {
     line-height: 1.6;
 }
 
+/* Mission Control Log Styling */
+.status-panel .logs {
+    background: #0b0f14;
+    color: #d7e0ea;
+    border: 1px solid #202733;
+    border-radius: 6px;
+    padding: 0.5rem 0;
+    max-height: 320px;
+    overflow-y: auto;
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.02);
+}
+
 .log-entry {
-    margin-bottom: 0.5rem;
-    padding: 0.25rem 0;
+    margin: 0;
+    padding: 0.5rem 0.75rem;
+    border-left: 3px solid transparent;
+    display: flex;
+    gap: 0.5rem;
+    align-items: flex-start;
+    font-size: 0.85rem;
+    letter-spacing: 0.01em;
 }
 
 .log-entry.threat {
-    color: var(--alert-red);
-    font-weight: bold;
+    color: #ff5a5a;
+    font-weight: 700;
+    font-size: 0.9rem;
+    border-left-color: #ff3b3b;
+    background: rgba(255, 59, 59, 0.08);
+    box-shadow: 0 2px 8px rgba(255, 59, 59, 0.12);
+}
+
+.log-entry.info {
+    border-left-color: #00ff88;
+    color: #cfe9dc;
+}
+
+.log-entry.warning {
+    border-left-color: #f4b000;
+    color: #f7e2b0;
+}
+
+.log-entry.error {
+    border-left-color: #ff3b3b;
+    color: #ffb3b3;
+}
+
+/* Tighten log line height for readability */
+.log-entry {
+    line-height: 1.35;
+}
+
+/* Emphasize threat keywords */
+.log-entry.threat {
+    text-transform: uppercase;
+}
+
+/* Alternate rows for scanability */
+.log-entry:nth-child(odd) {
+    background: rgba(255, 255, 255, 0.02);
+}
+
+.log-entry:nth-child(even) {
+    background: rgba(255, 255, 255, 0.04);
+}
+
+/* Timestamp pill (when present in text) */
+.log-entry::before {
+    content: attr(data-timestamp);
+    display: none;
 }
 
 /* Threat Detection Animation */
@@ -740,13 +802,13 @@ body {
     }
 
     .logs {
-        font-size: 0.85rem;
-        line-height: 1.4;
+        font-size: 0.8rem;
+        line-height: 1.3;
     }
 
     .log-entry {
-        margin-bottom: 0.35rem;
-        padding: 0.2rem 0;
+        margin-bottom: 0;
+        padding: 0.4rem 0.6rem;
     }
 
     /* Controls optimized for touch */
