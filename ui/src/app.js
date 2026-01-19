@@ -1357,14 +1357,19 @@ class ZookApp {
     async handleSearch() {
         const searchInput = document.getElementById('search-input');
         const prompt = searchInput.value.trim();
+        const searchButton = document.querySelector('.search-button');
         
         if (!prompt) {
             return;
         }
         
         const resultsContainer = document.getElementById('search-results');
-        resultsContainer.innerHTML = '<div class="log-entry">Searching...</div>';
+        resultsContainer.innerHTML = '<div class="search-loading">Searching<span class="progress-dots"></span></div>';
         resultsContainer.classList.remove('hidden');
+        if (searchButton) {
+            searchButton.disabled = true;
+            searchButton.classList.add('primary');
+        }
         
         try {
             const response = await fetch(`${this.apiUrl}/query`, {
@@ -1385,7 +1390,11 @@ class ZookApp {
             
         } catch (error) {
             console.error('Search error:', error);
-            resultsContainer.innerHTML = '<div class="no-results">Search failed. Please try again.</div>';
+            resultsContainer.innerHTML = '<div class="search-error">Search failed. Please try again.</div>';
+        } finally {
+            if (searchButton) {
+                searchButton.disabled = false;
+            }
         }
     }
 
@@ -1393,7 +1402,7 @@ class ZookApp {
         const resultsContainer = document.getElementById('search-results');
         
         if (!data.results || data.results.length === 0) {
-            resultsContainer.innerHTML = '<div class="no-results">No clips found matching your query.</div>';
+            resultsContainer.innerHTML = '<div class="no-results">No clips found — try different wording.</div>';
             return;
         }
         

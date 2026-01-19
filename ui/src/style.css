@@ -582,16 +582,24 @@ body {
 
 #search-input {
     width: 100%;
-    padding: 0.5rem;
-    border: 1px solid var(--border-gray);
+    padding: 0.65rem 0.75rem;
+    border: 1px solid #1f2a3a;
     font-family: var(--monospace);
-    font-size: 0.85rem;
-    background: var(--bg-white);
+    font-size: 0.9rem;
+    background: #0b0f14;
+    color: #d7e0ea;
+    border-radius: 8px;
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.03);
+}
+
+#search-input::placeholder {
+    color: rgba(215, 224, 234, 0.5);
 }
 
 #search-input:focus {
     outline: none;
     border-color: var(--accent-green);
+    box-shadow: 0 0 0 2px rgba(0, 255, 136, 0.25);
 }
 
 .search-button {
@@ -608,6 +616,27 @@ body {
     background: var(--bg-light-gray);
 }
 
+.search-button.primary {
+    border-color: var(--accent-green);
+    color: #0b0f14;
+    background: var(--accent-green);
+    font-weight: 700;
+    border-radius: 8px;
+    box-shadow: 0 6px 14px rgba(0, 255, 136, 0.25);
+}
+
+.search-button.primary:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 10px 20px rgba(0, 255, 136, 0.3);
+}
+
+.search-button.primary:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+    transform: none;
+    box-shadow: none;
+}
+
 /* Search Results */
 .search-results {
     margin-top: 1rem;
@@ -622,8 +651,11 @@ body {
 .result-item {
     margin-bottom: 1rem;
     padding: 0.75rem;
-    border: 1px solid var(--border-gray);
-    background: var(--bg-white);
+    border: 1px solid #1f2a3a;
+    background: #0b0f14;
+    color: #d7e0ea;
+    border-radius: 8px;
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.25);
 }
 
 .result-header {
@@ -635,12 +667,20 @@ body {
 }
 
 .result-time {
-    color: #666;
+    color: #aeb9c6;
+    background: rgba(255, 255, 255, 0.06);
+    padding: 0.15rem 0.4rem;
+    border-radius: 6px;
+    font-size: 0.75rem;
 }
 
 .result-confidence {
-    color: var(--accent-green);
-    font-weight: 600;
+    color: #0b0f14;
+    background: var(--accent-green);
+    font-weight: 700;
+    padding: 0.15rem 0.5rem;
+    border-radius: 999px;
+    font-size: 0.75rem;
 }
 
 .result-video {
@@ -652,8 +692,26 @@ body {
 .no-results {
     padding: 1rem;
     text-align: center;
-    color: #666;
+    color: #aeb9c6;
     font-style: italic;
+}
+
+.search-loading {
+    padding: 0.75rem 1rem;
+    background: #0b0f14;
+    border: 1px solid #1f2a3a;
+    border-radius: 8px;
+    color: #d7e0ea;
+    font-size: 0.85rem;
+}
+
+.search-error {
+    padding: 0.75rem 1rem;
+    background: rgba(255, 59, 59, 0.12);
+    border: 1px solid rgba(255, 59, 59, 0.35);
+    border-radius: 8px;
+    color: #ffb3b3;
+    font-size: 0.85rem;
 }
 
 /* Privacy Bar (Dashboard) */
