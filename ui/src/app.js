@@ -910,9 +910,9 @@ class ZookApp {
                     const refreshed = await tokenManager.refreshAccessToken();
                     if (refreshed) {
                         this.authToken = tokenManager.getAccessToken();
-                        this.sessionId = sessionId;
-                        this.showDashboard();
-                    } else {
+                    this.sessionId = sessionId;
+                    this.showDashboard();
+                } else {
                         this.clearStoredAuth();
                     }
                 } else {
@@ -927,13 +927,13 @@ class ZookApp {
     
     clearStoredAuth() {
         // Clear legacy storage
-        localStorage.removeItem('zook_auth_token');
-        localStorage.removeItem('zook_session_id');
+                localStorage.removeItem('zook_auth_token');
+                localStorage.removeItem('zook_session_id');
         
         // Clear TokenManager storage
         if (window.ZookTokenManager) {
             window.ZookTokenManager.clearTokens();
-        }
+            }
         
         this.authToken = null;
         this.sessionId = null;
