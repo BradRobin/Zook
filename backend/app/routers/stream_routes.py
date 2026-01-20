@@ -3,10 +3,12 @@ Stream validation routes for MediaMTX integration.
 """
 from fastapi import APIRouter, Depends, HTTPException, status, Header
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 from typing import Optional
 
 from ..database import get_db
-from ..auth import verify_session, decode_token
+from ..auth import verify_session, decode_token, user_has_role
+from ..models import User
 from ..schemas import StreamValidationRequest, StreamValidationResponse
 
 router = APIRouter(prefix="/api/stream", tags=["streaming"])
@@ -61,6 +63,17 @@ async def validate_stream_access(
             message="Invalid token"
         )
     
+    # Load user to check role-based permissions
+    result = await db.execute(
+        select(User).where(User.id == token_data.user_id)
+    )
+    user = result.scalar_one_or_none()
+    if not user:
+        return StreamValidationResponse(
+            authorized=False,
+            message="User not found"
+        )
+
     # Validate action permissions (basic validation)
     allowed_actions = ["publish", "read", "playback", "api", "metrics"]
     if stream_request.action not in allowed_actions:
@@ -69,6 +82,15 @@ async def validate_stream_access(
             user_id=token_data.user_id,
             username=token_data.username,
             message=f"Invalid action: {stream_request.action}"
+        )
+
+    # RBAC: only admins can publish streams
+    if stream_request.action == "publish" and not user_has_role(user, {"admin"}):
+        return StreamValidationResponse(
+            authorized=False,
+            user_id=token_data.user_id,
+            username=token_data.username,
+            message="Publish requires admin role"
         )
     
     # Validate protocol (basic validation)

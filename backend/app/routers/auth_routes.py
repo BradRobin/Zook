@@ -5,7 +5,7 @@ Includes rate limiting for security and JWT refresh token support.
 """
 from fastapi import APIRouter, Depends, HTTPException, status, Request
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, func
 from datetime import datetime, timedelta
 import uuid
 import logging
@@ -62,12 +62,18 @@ async def register_user(
     
     # Hash password
     hashed_password = hash_password(user_data.password)
+
+    # Assign admin role to the first registered user
+    count_result = await db.execute(select(func.count(User.id)))
+    user_count = count_result.scalar_one() or 0
+    role = "admin" if user_count == 0 else "user"
     
     # Create new user
     new_user = User(
         id=uuid.uuid4(),
         username=user_data.username,
         password_hash=hashed_password,
+        role=role,
         created_at=datetime.utcnow()
     )
     
@@ -204,6 +210,7 @@ async def verify_token(
     return UserResponse(
         id=current_user.id,
         username=current_user.username,
+        role=current_user.role,
         created_at=current_user.created_at,
         last_login=current_user.last_login
     )

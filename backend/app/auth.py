@@ -140,6 +140,11 @@ async def get_current_user(
     return user
 
 
+def user_has_role(user: User, roles: set[str]) -> bool:
+    """Check if a user has one of the allowed roles."""
+    return user.role in roles
+
+
 async def verify_session(
     token: str,
     db: AsyncSession

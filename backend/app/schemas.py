@@ -31,6 +31,7 @@ class UserResponse(BaseModel):
     """Schema for user response."""
     id: uuid.UUID
     username: str
+    role: str
     created_at: datetime
     last_login: Optional[datetime]
     
