@@ -23,6 +23,7 @@ from ..auth import (
     revoke_refresh_token, revoke_all_user_refresh_tokens
 )
 from ..config import settings
+from ..demo_mode import is_demo_mode_request, mask_username, mask_uuid
 from ..rate_limiter import limiter
 from ..services.token_blacklist import (
     get_token_blacklist, get_failed_login_tracker
@@ -105,6 +106,7 @@ async def login_user(
     # Extract client information
     client_ip = request.client.host if request.client else "unknown"
     user_agent = request.headers.get("user-agent", "")
+    demo_mode = is_demo_mode_request(request)
     
     # Get failed login tracker
     login_tracker = get_failed_login_tracker()
@@ -156,7 +158,8 @@ async def login_user(
         token=refresh_token,
         ip_address=client_ip,
         user_agent=user_agent,
-        device_info=f"IP: {client_ip}"
+        device_info=f"IP: {client_ip}",
+        demo_mode=demo_mode
     )
     
     # Create session record
@@ -185,14 +188,17 @@ async def login_user(
     await db.commit()
     await db.refresh(new_session)
     
-    logger.info(f"User {user.username} logged in from {client_ip}")
+    log_username = mask_username(user.username) if demo_mode else user.username
+    logger.info(f"User {log_username} logged in from {client_ip}")
     
+    response_session_id = mask_uuid(session_id) if demo_mode else session_id
+    response_username = mask_username(user.username) if demo_mode else user.username
     return TokenPair(
         access_token=access_token,
         refresh_token=refresh_token,
         token_type="bearer",
-        session_id=session_id,
-        username=user.username,
+        session_id=response_session_id,
+        username=response_username,
         expires_in=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
         refresh_expires_in=settings.REFRESH_TOKEN_EXPIRE_DAYS * 24 * 3600
     )
@@ -200,6 +206,7 @@ async def login_user(
 
 @router.get("/verify", response_model=UserResponse)
 async def verify_token(
+    request: Request,
     current_user: User = Depends(get_current_user)
 ):
     """
@@ -207,9 +214,12 @@ async def verify_token(
     
     Used by frontend to check if stored token is still valid.
     """
+    demo_mode = is_demo_mode_request(request)
+    response_user_id = mask_uuid(current_user.id) if demo_mode else current_user.id
+    response_username = mask_username(current_user.username) if demo_mode else current_user.username
     return UserResponse(
-        id=current_user.id,
-        username=current_user.username,
+        id=response_user_id,
+        username=response_username,
         role=current_user.role,
         created_at=current_user.created_at,
         last_login=current_user.last_login
@@ -293,7 +303,9 @@ async def refresh_token(
         expires_delta=timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     )
     
-    logger.info(f"Refreshed access token for user {user.username}")
+    demo_mode = is_demo_mode_request(request)
+    log_username = mask_username(user.username) if demo_mode else user.username
+    logger.info(f"Refreshed access token for user {log_username}")
     
     return RefreshTokenResponse(
         access_token=access_token,
@@ -337,7 +349,9 @@ async def logout_user(
     
     await db.commit()
     
-    logger.info(f"User {current_user.username} logged out")
+    demo_mode = is_demo_mode_request(request)
+    log_username = mask_username(current_user.username) if demo_mode else current_user.username
+    logger.info(f"User {log_username} logged out")
     return MessageResponse(message="Logged out successfully")
 
 
@@ -375,13 +389,19 @@ async def logout_all_devices(
             reason="logout_all"
         )
     
+    demo_mode = is_demo_mode_request(request)
     # Revoke all refresh tokens
-    revoked_count = await revoke_all_user_refresh_tokens(db, current_user.id)
+    revoked_count = await revoke_all_user_refresh_tokens(
+        db,
+        current_user.id,
+        demo_mode=demo_mode
+    )
     
     await db.commit()
     
+    log_username = mask_username(current_user.username) if demo_mode else current_user.username
     logger.info(
-        f"User {current_user.username} logged out from all devices "
+        f"User {log_username} logged out from all devices "
         f"({len(active_sessions)} sessions, {revoked_count} refresh tokens)"
     )
     

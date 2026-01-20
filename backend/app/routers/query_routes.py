@@ -8,7 +8,7 @@ import logging
 import os
 from typing import Optional
 from datetime import datetime, timedelta
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Request
 from fastapi.security import HTTPBearer
 from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -18,6 +18,7 @@ from pydantic import BaseModel
 from ..database import get_db
 from ..auth import get_current_user
 from ..models import User, Clip, StreamSession
+from ..demo_mode import is_demo_mode_request, mask_username
 
 logger = logging.getLogger(__name__)
 
@@ -48,6 +49,7 @@ class QueryResponse(BaseModel):
 @router.post("", response_model=QueryResponse)
 async def query_clips(
     request: QueryRequest,
+    http_request: Request,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
@@ -62,7 +64,9 @@ async def query_clips(
     - Confidence: "high confidence", "over 90%"
     """
     prompt = request.prompt.lower().strip()
-    logger.info(f"Query from user {current_user.username}: {prompt}")
+    demo_mode = is_demo_mode_request(http_request)
+    log_username = mask_username(current_user.username) if demo_mode else current_user.username
+    logger.info(f"Query from user {log_username}: {prompt}")
     
     # Build query based on prompt keywords
     # Start with base query filtering by user's sessions only

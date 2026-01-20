@@ -327,8 +327,9 @@ class StreamingDetection {
         this.videoElement = videoElement;
         
         // Convert http to ws protocol
+        const demoParam = (window.ZookConfig && window.ZookConfig.DEMO_MODE) ? '&demo=true' : '';
         const wsUrl = this.apiUrl.replace('http://', 'ws://').replace('https://', 'wss://') 
-                      + `/ws/stream?token=${this.authToken}`;
+                      + `/ws/stream?token=${this.authToken}${demoParam}`;
         
         console.log('Connecting to WebSocket:', wsUrl);
         
@@ -563,7 +564,8 @@ class RESTDetection {
             const response = await fetch(`${this.apiUrl}/detect`, {
                 method: 'POST',
                 headers: {
-                    'Authorization': `Bearer ${this.authToken}`
+                    'Authorization': `Bearer ${this.authToken}`,
+                    ...(window.ZookConfig && window.ZookConfig.DEMO_MODE ? { 'X-Demo-Mode': 'true' } : {})
                 },
                 body: formData
             });
@@ -895,7 +897,8 @@ class ZookApp {
                 const response = await fetch(`${this.apiUrl}/api/verify`, {
                     method: 'GET',
                     headers: {
-                        'Authorization': `Bearer ${token}`
+                        'Authorization': `Bearer ${token}`,
+                        ...this.getDemoHeaders()
                     }
                 });
                 
@@ -960,13 +963,31 @@ class ZookApp {
         document.getElementById('auth-error').classList.add('hidden');
     }
 
+    getDemoHeaders() {
+        if (window.ZookConfig && window.ZookConfig.DEMO_MODE) {
+            return { 'X-Demo-Mode': 'true' };
+        }
+        return {};
+    }
+
+    maskDemoValue(value, type = 'generic') {
+        if (!(window.ZookConfig && window.ZookConfig.DEMO_MODE)) {
+            return value;
+        }
+        if (type === 'username') {
+            return 'demo-user';
+        }
+        return 'demo';
+    }
+
     getAuthHeaders() {
         /**
          * Get headers with JWT authorization for authenticated requests.
          */
         return {
             'Content-Type': 'application/json',
-            'Authorization': `Bearer ${this.authToken}`
+            'Authorization': `Bearer ${this.authToken}`,
+            ...this.getDemoHeaders()
         };
     }
 
@@ -990,6 +1011,7 @@ class ZookApp {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
+                    ...this.getDemoHeaders()
                 },
                 body: JSON.stringify({
                     username: username,
@@ -1015,7 +1037,7 @@ class ZookApp {
             localStorage.setItem('zook_auth_token', this.authToken);
             localStorage.setItem('zook_session_id', this.sessionId);
             
-            console.log('✓ Login successful:', data.username);
+            console.log('✓ Login successful:', this.maskDemoValue(data.username, 'username'));
             console.log('  Access token expires in:', data.expires_in, 'seconds');
             console.log('  Refresh token expires in:', data.refresh_expires_in, 'seconds');
             
@@ -1376,7 +1398,8 @@ class ZookApp {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${this.authToken}`
+                    'Authorization': `Bearer ${this.authToken}`,
+                    ...this.getDemoHeaders()
                 },
                 body: JSON.stringify({ prompt })
             });
@@ -1495,7 +1518,8 @@ class ZookApp {
     getAuthHeaders() {
         return {
             'Authorization': `Bearer ${this.authToken}`,
-            'Content-Type': 'application/json'
+            'Content-Type': 'application/json',
+            ...this.getDemoHeaders()
         };
     }
 

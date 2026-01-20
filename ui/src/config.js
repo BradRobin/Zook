@@ -53,6 +53,27 @@ function detectEnvironment() {
 }
 
 /**
+ * Detect demo mode flag
+ * @returns {boolean} True if demo mode is enabled
+ */
+function detectDemoMode() {
+    // Explicit global override
+    if (window.ZOOK_DEMO_MODE !== undefined) {
+        return String(window.ZOOK_DEMO_MODE).toLowerCase() === 'true' ||
+               String(window.ZOOK_DEMO_MODE) === '1';
+    }
+    
+    // URL query parameter override (?demo=1 or ?demo=true)
+    const params = new URLSearchParams(window.location.search);
+    const demoParam = params.get('demo');
+    if (demoParam) {
+        return demoParam.toLowerCase() === 'true' || demoParam === '1';
+    }
+    
+    return false;
+}
+
+/**
  * Check if connection should be secure (HTTPS/WSS)
  * @returns {boolean} True if secure connection
  */
@@ -69,6 +90,7 @@ const ZookConfig = {
     // Environment
     ENVIRONMENT: detectEnvironment(),
     IS_SECURE: isSecureConnection(),
+    DEMO_MODE: detectDemoMode(),
     
     // Feature flags
     ENABLE_CAMERA: true,
@@ -268,7 +290,8 @@ class TokenManager {
             const response = await fetch(`${this.config.API_URL}/api/refresh`, {
                 method: 'POST',
                 headers: {
-                    'Content-Type': 'application/json'
+                    'Content-Type': 'application/json',
+                    ...(this.config.DEMO_MODE ? { 'X-Demo-Mode': 'true' } : {})
                 },
                 body: JSON.stringify({ refresh_token: refreshToken })
             });
@@ -321,7 +344,8 @@ class TokenManager {
         // Add authorization header
         const headers = {
             ...options.headers,
-            'Authorization': `Bearer ${this.getAccessToken()}`
+            'Authorization': `Bearer ${this.getAccessToken()}`,
+            ...(this.config.DEMO_MODE ? { 'X-Demo-Mode': 'true' } : {})
         };
         
         const response = await fetch(url, { ...options, headers });

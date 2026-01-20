@@ -9,7 +9,7 @@ Supports both WS and WSS (secure WebSocket) protocols.
 import logging
 import asyncio
 from datetime import datetime
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Depends, Query, status
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Depends, Query, status, Request
 from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -19,6 +19,7 @@ from ..auth import decode_token
 from ..services.session_manager import get_session_manager, StreamSession
 from ..services.stream_processor import process_stream
 from ..config import settings
+from ..demo_mode import is_demo_mode_ws, is_demo_mode_request, mask_username, mask_uuid_str
 
 logger = logging.getLogger(__name__)
 
@@ -55,7 +56,7 @@ async def validate_and_cleanup_clips(session: StreamSession, db: AsyncSession):
         clips = result.scalars().all()
         
         if not clips:
-            logger.info(f"No clips to validate for session {session.session_id}")
+            logger.info(f"No clips to validate for session {session.display_session_id()}")
             return
         
         logger.info(f"Starting CLIP validation for {len(clips)} clip(s)")
@@ -114,7 +115,7 @@ async def validate_and_cleanup_clips(session: StreamSession, db: AsyncSession):
         
         # Commit all updates
         await db.commit()
-        logger.info(f"CLIP validation complete for session {session.session_id}")
+        logger.info(f"CLIP validation complete for session {session.display_session_id()}")
         
     except Exception as e:
         logger.error(f"Error in validate_and_cleanup_clips: {e}", exc_info=True)
@@ -219,6 +220,7 @@ def log_websocket_connection_info(websocket: WebSocket):
 async def stream_endpoint(
     websocket: WebSocket,
     token: str = Query(..., description="JWT authentication token"),
+    demo: str | None = Query(None, description="Enable demo mode masking"),
     db: AsyncSession = Depends(get_db)
 ):
     """
@@ -306,11 +308,15 @@ async def stream_endpoint(
             await websocket.close(code=4003)  # Custom code for forbidden origin
             return
         
+        demo_mode = is_demo_mode_ws(demo)
+
         # Verify JWT token
         logger.info("WebSocket connection attempt")
         try:
             user_id, username = await verify_websocket_token(token, db)
-            logger.info(f"WebSocket authenticated: user {username} ({user_id})")
+            log_username = mask_username(username) if demo_mode else username
+            log_user_id = mask_uuid_str(user_id) if demo_mode else user_id
+            logger.info(f"WebSocket authenticated: user {log_username} ({log_user_id})")
         except Exception as e:
             logger.warning(f"WebSocket authentication failed: {e}")
             await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
@@ -318,10 +324,11 @@ async def stream_endpoint(
         
         # Accept WebSocket connection
         await websocket.accept()
-        logger.info(f"WebSocket accepted for user {username}")
+        log_username = mask_username(username) if demo_mode else username
+        logger.info(f"WebSocket accepted for user {log_username}")
         
         # Create streaming session
-        session = session_manager.create_session(user_id, websocket, db)
+        session = session_manager.create_session(user_id, websocket, db, demo_mode=demo_mode)
         
         # Start frame processor
         processor = await process_stream(session, target_fps=15)
@@ -332,7 +339,7 @@ async def stream_endpoint(
         
         await websocket.send_json({
             'type': 'connected',
-            'session_id': session.session_id,
+            'session_id': session.display_session_id(),
             'message': 'Stream connected successfully',
             'target_fps': 15,
             'idle_timeout_minutes': session.idle_timeout_seconds / 60,
@@ -355,7 +362,9 @@ async def stream_endpoint(
                     pass
                 
             except WebSocketDisconnect:
-                logger.info(f"WebSocket disconnected: session {session.session_id}")
+                logger.info(
+                    f"WebSocket disconnected: session {session.display_session_id()}"
+                )
                 break
             except Exception as e:
                 logger.error(f"Error receiving frame: {e}", exc_info=True)
@@ -415,7 +424,7 @@ async def stream_health():
 
 
 @router.get("/stream/sessions")
-async def list_sessions():
+async def list_sessions(request: Request):
     """
     List all active streaming sessions (admin endpoint).
     
@@ -423,10 +432,11 @@ async def list_sessions():
     """
     session_manager = get_session_manager()
     
+    demo_mode = is_demo_mode_request(request)
     sessions_info = [
         {
-            'session_id': session.session_id,
-            'user_id': session.user_id,
+            'session_id': mask_uuid_str(session.session_id) if demo_mode else session.session_id,
+            'user_id': mask_uuid_str(session.user_id) if demo_mode else session.user_id,
             'start_time': session.start_time.isoformat(),
             'total_frames': session.total_frames,
             'total_detections': session.total_detections,

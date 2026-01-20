@@ -1,7 +1,7 @@
 """
 Stream validation routes for MediaMTX integration.
 """
-from fastapi import APIRouter, Depends, HTTPException, status, Header
+from fastapi import APIRouter, Depends, HTTPException, status, Header, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from typing import Optional
@@ -10,6 +10,7 @@ from ..database import get_db
 from ..auth import verify_session, decode_token, user_has_role
 from ..models import User
 from ..schemas import StreamValidationRequest, StreamValidationResponse
+from ..demo_mode import is_demo_mode_request, mask_username, mask_uuid
 
 router = APIRouter(prefix="/api/stream", tags=["streaming"])
 
@@ -19,6 +20,7 @@ async def validate_stream_access(
     stream_request: StreamValidationRequest,
     authorization: Optional[str] = Header(None),
     token: Optional[str] = None,  # Query parameter fallback
+    request: Request,
     db: AsyncSession = Depends(get_db)
 ):
     """
@@ -74,13 +76,17 @@ async def validate_stream_access(
             message="User not found"
         )
 
+    demo_mode = is_demo_mode_request(request)
+    response_user_id = mask_uuid(token_data.user_id) if demo_mode else token_data.user_id
+    response_username = mask_username(token_data.username) if demo_mode else token_data.username
+
     # Validate action permissions (basic validation)
     allowed_actions = ["publish", "read", "playback", "api", "metrics"]
     if stream_request.action not in allowed_actions:
         return StreamValidationResponse(
             authorized=False,
-            user_id=token_data.user_id,
-            username=token_data.username,
+            user_id=response_user_id,
+            username=response_username,
             message=f"Invalid action: {stream_request.action}"
         )
 
@@ -88,8 +94,8 @@ async def validate_stream_access(
     if stream_request.action == "publish" and not user_has_role(user, {"admin"}):
         return StreamValidationResponse(
             authorized=False,
-            user_id=token_data.user_id,
-            username=token_data.username,
+            user_id=response_user_id,
+            username=response_username,
             message="Publish requires admin role"
         )
     
@@ -98,16 +104,16 @@ async def validate_stream_access(
     if stream_request.protocol not in allowed_protocols:
         return StreamValidationResponse(
             authorized=False,
-            user_id=token_data.user_id,
-            username=token_data.username,
+            user_id=response_user_id,
+            username=response_username,
             message=f"Invalid protocol: {stream_request.protocol}"
         )
     
     # All checks passed
     return StreamValidationResponse(
         authorized=True,
-        user_id=token_data.user_id,
-        username=token_data.username,
+        user_id=response_user_id,
+        username=response_username,
         message="Stream access granted"
     )
 

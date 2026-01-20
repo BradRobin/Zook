@@ -21,6 +21,7 @@ from ..metrics import (
     SESSION_TERMINATIONS, WEBSOCKET_CONNECTIONS,
     record_session_start, record_session_end
 )
+from ..demo_mode import mask_uuid_str
 
 logger = logging.getLogger(__name__)
 
@@ -40,12 +41,14 @@ class StreamSession:
         websocket: WebSocket,
         db: AsyncSession,
         max_queue_size: int = 30,
-        idle_timeout_seconds: int = 300  # 5 minutes
+        idle_timeout_seconds: int = 300,  # 5 minutes
+        demo_mode: bool = False
     ):
         self.session_id = session_id
         self.user_id = user_id
         self.websocket = websocket
         self.db = db
+        self.demo_mode = demo_mode
         
         # Timing
         self.start_time = datetime.utcnow()
@@ -74,7 +77,17 @@ class StreamSession:
         self.db_stream_session_id: Optional[uuid.UUID] = None
         self._db_session_created = False
         
-        logger.info(f"Session created: {session_id} for user {user_id}")
+        logger.info(
+            f"Session created: {self.display_session_id()} for user {self.display_user_id()}"
+        )
+
+    def display_session_id(self) -> str:
+        """Return session ID masked in demo mode."""
+        return mask_uuid_str(self.session_id) if self.demo_mode else self.session_id
+
+    def display_user_id(self) -> str:
+        """Return user ID masked in demo mode."""
+        return mask_uuid_str(self.user_id) if self.demo_mode else self.user_id
     
     async def _ensure_db_session(self):
         """
@@ -141,7 +154,9 @@ class StreamSession:
             # Queue full - drop frame to prevent memory overflow
             self.dropped_frames += 1
             if self.dropped_frames % 10 == 0:
-                logger.warning(f"Session {self.session_id}: Dropped {self.dropped_frames} frames")
+                logger.warning(
+                    f"Session {self.display_session_id()}: Dropped {self.dropped_frames} frames"
+                )
             return False
     
     async def get_frame(self, timeout: float = 1.0) -> Optional[Dict]:
@@ -182,7 +197,9 @@ class StreamSession:
             if self.max_yolo_confidence is None or yolo_confidence > self.max_yolo_confidence:
                 self.max_yolo_confidence = yolo_confidence
         
-        logger.info(f"Session {self.session_id}: Detection #{self.total_detections}")
+        logger.info(
+            f"Session {self.display_session_id()}: Detection #{self.total_detections}"
+        )
     
     def start_recording(self, recording_path: str):
         """Start recording video."""
@@ -190,14 +207,18 @@ class StreamSession:
             self.is_recording = True
             self.recording_path = recording_path
             self.recording_start_time = datetime.utcnow()
-            logger.info(f"Session {self.session_id}: Recording started -> {recording_path}")
+            logger.info(
+                f"Session {self.display_session_id()}: Recording started -> {recording_path}"
+            )
     
     def stop_recording(self):
         """Stop recording video."""
         if self.is_recording:
             self.is_recording = False
             duration = (datetime.utcnow() - self.recording_start_time).total_seconds()
-            logger.info(f"Session {self.session_id}: Recording stopped (duration: {duration:.1f}s)")
+            logger.info(
+                f"Session {self.display_session_id()}: Recording stopped (duration: {duration:.1f}s)"
+            )
     
     def is_idle_timeout(self) -> bool:
         """
@@ -227,8 +248,8 @@ class StreamSession:
     def get_session_info(self) -> Dict:
         """Get session information for status messages."""
         return {
-            'session_id': self.session_id,
-            'user_id': self.user_id,
+            'session_id': self.display_session_id(),
+            'user_id': self.display_user_id(),
             'start_time': self.start_time.isoformat(),
             'total_frames': self.total_frames,
             'processed_frames': self.processed_frames,
@@ -248,7 +269,9 @@ class StreamSession:
         Args:
             reason: Termination reason (timeout, disconnect, error, normal)
         """
-        logger.info(f"Session {self.session_id}: Cleanup initiated (reason: {reason})")
+        logger.info(
+            f"Session {self.display_session_id()}: Cleanup initiated (reason: {reason})"
+        )
         
         self.is_active = False
         self.termination_reason = reason
@@ -267,7 +290,7 @@ class StreamSession:
         # Persist to database
         await self._persist_to_database()
         
-        logger.info(f"Session {self.session_id}: Cleanup complete")
+        logger.info(f"Session {self.display_session_id()}: Cleanup complete")
     
     async def _persist_to_database(self):
         """
@@ -349,7 +372,8 @@ class SessionManager:
         self,
         user_id: str,
         websocket: WebSocket,
-        db: AsyncSession
+        db: AsyncSession,
+        demo_mode: bool = False
     ) -> StreamSession:
         """
         Create a new streaming session.
@@ -363,14 +387,16 @@ class SessionManager:
             New StreamSession instance
         """
         session_id = str(uuid.uuid4())
-        session = StreamSession(session_id, user_id, websocket, db)
+        session = StreamSession(session_id, user_id, websocket, db, demo_mode=demo_mode)
         self.sessions[session_id] = session
         
         # Record metrics
         record_session_start()
         WEBSOCKET_CONNECTIONS.inc()
         
-        logger.info(f"Session created: {session_id} (total active: {len(self.sessions)})")
+        logger.info(
+            f"Session created: {session.display_session_id()} (total active: {len(self.sessions)})"
+        )
         
         # Start monitor if not running
         if self._monitor_task is None or self._monitor_task.done():
@@ -406,7 +432,7 @@ class SessionManager:
             WEBSOCKET_CONNECTIONS.dec()
             
             logger.info(
-                f"Session removed: {session_id} "
+                f"Session removed: {session.display_session_id()} "
                 f"(duration: {duration:.1f}s, reason: {reason}, remaining: {len(self.sessions)})"
             )
     
@@ -430,7 +456,7 @@ class SessionManager:
                         sessions_to_remove.append((session_id, "inactive"))
                     elif session.is_idle_timeout():
                         logger.warning(
-                            f"Session {session_id}: Idle timeout "
+                            f"Session {session.display_session_id()}: Idle timeout "
                             f"({session.get_idle_minutes():.1f} min without detection)"
                         )
                         sessions_to_remove.append((session_id, "timeout"))

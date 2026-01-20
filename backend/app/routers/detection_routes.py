@@ -5,7 +5,7 @@ This module provides the /detect endpoint for real-time knife detection
 from video frames captured by the frontend. Requires JWT authentication
 and processes JPEG images for threat detection.
 """
-from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.ext.asyncio import AsyncSession
 import logging
@@ -15,6 +15,7 @@ from ..database import get_db
 from ..auth import verify_session
 from ..schemas import DetectionResponse, ThreatDetection as ThreatDetectionSchema, BoundingBox
 from ..services import get_detector
+from ..demo_mode import is_demo_mode_request, mask_uuid_str
 
 logger = logging.getLogger(__name__)
 
@@ -26,6 +27,7 @@ security = HTTPBearer()
 async def detect_threats(
     image: UploadFile = File(..., description="JPEG image frame from video stream"),
     credentials: HTTPAuthorizationCredentials = Depends(security),
+    request: Request,
     db: AsyncSession = Depends(get_db)
 ):
     """
@@ -110,7 +112,9 @@ async def detect_threats(
             headers={"WWW-Authenticate": "Bearer"}
         )
     
-    logger.info(f"Detection request from user {session.user_id}")
+    demo_mode = is_demo_mode_request(request)
+    log_user_id = mask_uuid_str(session.user_id) if demo_mode else str(session.user_id)
+    logger.info(f"Detection request from user {log_user_id}")
     
     # Validate image file
     if not image.content_type or not image.content_type.startswith('image/'):
@@ -246,6 +250,7 @@ async def detection_health():
 async def update_detection_threshold(
     threshold: float,
     credentials: HTTPAuthorizationCredentials = Depends(security),
+    request: Request,
     db: AsyncSession = Depends(get_db)
 ):
     """
@@ -280,7 +285,9 @@ async def update_detection_threshold(
         detector = get_detector()
         detector.update_threshold(threshold)
         
-        logger.info(f"Detection threshold updated to {threshold} by user {session.user_id}")
+        demo_mode = is_demo_mode_request(request)
+        log_user_id = mask_uuid_str(session.user_id) if demo_mode else str(session.user_id)
+        logger.info(f"Detection threshold updated to {threshold} by user {log_user_id}")
         
         return {
             "message": "Threshold updated successfully",

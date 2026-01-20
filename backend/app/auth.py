@@ -20,6 +20,7 @@ from .config import settings
 from .database import get_db
 from .models import User, Session, RefreshToken
 from .schemas import TokenData
+from .demo_mode import mask_uuid_str
 
 logger = logging.getLogger(__name__)
 
@@ -342,7 +343,8 @@ async def store_refresh_token(
     token: str,
     ip_address: Optional[str] = None,
     user_agent: Optional[str] = None,
-    device_info: Optional[str] = None
+    device_info: Optional[str] = None,
+    demo_mode: bool = False
 ) -> RefreshToken:
     """
     Store a refresh token in the database (hashed).
@@ -374,7 +376,8 @@ async def store_refresh_token(
     await db.commit()
     await db.refresh(refresh_token)
     
-    logger.info(f"Stored refresh token for user {user_id}")
+    log_user_id = mask_uuid_str(user_id) if demo_mode else str(user_id)
+    logger.info(f"Stored refresh token for user {log_user_id}")
     return refresh_token
 
 
@@ -407,7 +410,8 @@ async def verify_refresh_token_db(
 
 async def revoke_refresh_token(
     db: AsyncSession,
-    token: str
+    token: str,
+    demo_mode: bool = False
 ) -> bool:
     """
     Revoke a refresh token.
@@ -429,7 +433,8 @@ async def revoke_refresh_token(
     if refresh_token:
         refresh_token.revoked_at = datetime.utcnow()
         await db.commit()
-        logger.info(f"Revoked refresh token for user {refresh_token.user_id}")
+        log_user_id = mask_uuid_str(refresh_token.user_id) if demo_mode else str(refresh_token.user_id)
+        logger.info(f"Revoked refresh token for user {log_user_id}")
         return True
     
     return False
@@ -437,7 +442,8 @@ async def revoke_refresh_token(
 
 async def revoke_all_user_refresh_tokens(
     db: AsyncSession,
-    user_id: uuid.UUID
+    user_id: uuid.UUID,
+    demo_mode: bool = False
 ) -> int:
     """
     Revoke all refresh tokens for a user (logout from all devices).
@@ -463,7 +469,8 @@ async def revoke_all_user_refresh_tokens(
         count += 1
     
     await db.commit()
-    logger.info(f"Revoked {count} refresh tokens for user {user_id}")
+    log_user_id = mask_uuid_str(user_id) if demo_mode else str(user_id)
+    logger.info(f"Revoked {count} refresh tokens for user {log_user_id}")
     return count
 
 
