@@ -25,6 +25,7 @@ from ..auth import (
 from ..config import settings
 from ..demo_mode import is_demo_mode_request, mask_username, mask_uuid
 from ..rate_limiter import limiter
+from ..metrics import record_login, record_token_refresh
 from ..services.token_blacklist import (
     get_token_blacklist, get_failed_login_tracker
 )
@@ -114,6 +115,7 @@ async def login_user(
     # Check if IP is temporarily blocked
     if await login_tracker.is_ip_blocked(client_ip, threshold=10):
         logger.warning(f"Blocked login attempt from {client_ip} (too many failures)")
+        record_login(False)
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail="Too many failed login attempts. Please try again later."
@@ -128,6 +130,7 @@ async def login_user(
     if not user:
         # Record failed attempt
         await login_tracker.record_failed_attempt(client_ip, user_data.username)
+        record_login(False)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid username or password"
@@ -137,6 +140,7 @@ async def login_user(
     if not verify_password(user_data.password, user.password_hash):
         # Record failed attempt
         await login_tracker.record_failed_attempt(client_ip, user_data.username)
+        record_login(False)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid username or password"
@@ -187,6 +191,8 @@ async def login_user(
     
     await db.commit()
     await db.refresh(new_session)
+
+    record_login(True)
     
     log_username = mask_username(user.username) if demo_mode else user.username
     logger.info(f"User {log_username} logged in from {client_ip}")
@@ -263,6 +269,7 @@ async def refresh_token(
     blacklist = get_token_blacklist()
     if await blacklist.is_blacklisted(token_data.refresh_token):
         logger.warning("Attempted to use blacklisted refresh token")
+        record_token_refresh(False)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Refresh token has been revoked"
@@ -272,6 +279,7 @@ async def refresh_token(
     try:
         decoded = decode_refresh_token(token_data.refresh_token)
     except HTTPException:
+        record_token_refresh(False)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or expired refresh token"
@@ -280,6 +288,7 @@ async def refresh_token(
     # Verify token exists in database and is not revoked
     db_token = await verify_refresh_token_db(db, token_data.refresh_token)
     if not db_token:
+        record_token_refresh(False)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Refresh token not found or revoked"
@@ -292,6 +301,7 @@ async def refresh_token(
     user = result.scalar_one_or_none()
     
     if not user:
+        record_token_refresh(False)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="User not found"
@@ -302,6 +312,8 @@ async def refresh_token(
         data={"user_id": str(user.id), "username": user.username},
         expires_delta=timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     )
+
+    record_token_refresh(True)
     
     demo_mode = is_demo_mode_request(request)
     log_username = mask_username(user.username) if demo_mode else user.username

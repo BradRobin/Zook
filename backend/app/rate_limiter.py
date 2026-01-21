@@ -136,6 +136,13 @@ async def rate_limit_exceeded_handler(request: Request, exc: RateLimitExceeded) 
     
     # Log the violation
     log_rate_limit_exceeded(request, str(exc.detail))
+
+    # Record metrics
+    try:
+        from .metrics import record_rate_limit_hit
+        record_rate_limit_hit(request.url.path)
+    except Exception:
+        logger.exception("Failed to record rate limit metrics")
     
     # Get retry-after header value
     retry_after = getattr(exc, 'retry_after', 60)

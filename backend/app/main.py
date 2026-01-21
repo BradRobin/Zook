@@ -9,7 +9,7 @@ import logging
 
 from .config import settings
 from .database import init_db, AsyncSessionLocal
-from .routers import auth_routes, stream_routes, detection_routes, stream_ws_routes, query_routes
+from .routers import auth_routes, stream_routes, detection_routes, stream_ws_routes, query_routes, metrics_routes
 from .services import get_detector
 from .services.cleanup_scheduler import get_cleanup_scheduler
 from .redis_client import init_redis, close_redis, redis_client
@@ -255,6 +255,7 @@ app.include_router(stream_routes.router)
 app.include_router(detection_routes.router)
 app.include_router(stream_ws_routes.router)
 app.include_router(query_routes.router)
+app.include_router(metrics_routes.router)
 
 
 # Root endpoint

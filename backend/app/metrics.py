@@ -306,6 +306,12 @@ def record_login(success: bool):
         FAILED_LOGINS.inc()
 
 
+def record_token_refresh(success: bool):
+    """Record a refresh token attempt."""
+    status = "success" if success else "failure"
+    TOKEN_REFRESH.labels(status=status).inc()
+
+
 def record_rate_limit_hit(endpoint: str):
     """Record a rate limit violation."""
     RATE_LIMIT_HITS.labels(endpoint=endpoint).inc()
@@ -419,9 +425,6 @@ def setup_metrics(app: FastAPI) -> None:
     instrumentator = create_instrumentator()
     instrumentator.instrument(app)
     
-    # Expose metrics endpoint
-    instrumentator.expose(app, include_in_schema=True, tags=["monitoring"])
-    
     # Set app start time
     APP_START_TIME.set(time.time())
     
@@ -432,7 +435,7 @@ def setup_metrics(app: FastAPI) -> None:
         "metrics_prefix": PREFIX
     })
     
-    logger.info(f"✓ Prometheus metrics enabled at /metrics (prefix: {PREFIX})")
+    logger.info(f"✓ Prometheus metrics enabled (prefix: {PREFIX})")
 
 
 # ============================================================================

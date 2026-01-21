@@ -87,6 +87,18 @@ Visit the interactive API docs:
 - Swagger UI: `http://localhost:8000/docs`
 - ReDoc: `http://localhost:8000/redoc`
 
+### Monitoring (Prometheus)
+
+Prometheus metrics are exposed at `/metrics` and require an admin JWT.
+
+Example:
+```http
+GET /metrics
+Authorization: Bearer <admin-jwt-token>
+```
+
+Metrics can be disabled by setting `METRICS_ENABLED=false`.
+
 ## API Endpoints
 
 ### Authentication
