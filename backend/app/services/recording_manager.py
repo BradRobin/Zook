@@ -18,6 +18,7 @@ from PIL import Image
 from io import BytesIO
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..logging_utils import format_log
 logger = logging.getLogger(__name__)
 
 
@@ -68,7 +69,13 @@ class VideoRecorder:
         if not self.writer.isOpened():
             raise RuntimeError(f"Failed to open video writer: {output_path}")
         
-        logger.info(f"VideoRecorder started: {output_path} ({fps}fps, {resolution})")
+        logger.info(format_log(
+            "Video recorder started",
+            event="recording.start",
+            file_path=output_path,
+            fps=fps,
+            resolution=f"{resolution[0]}x{resolution[1]}"
+        ))
     
     def add_frame(self, frame_bytes: bytes) -> bool:
         """
@@ -100,7 +107,13 @@ class VideoRecorder:
             return True
             
         except Exception as e:
-            logger.error(f"Error adding frame to recording: {e}")
+            logger.error(format_log(
+                "Error adding frame to recording",
+                event="recording.frame",
+                status="error",
+                file_path=self.output_path,
+                error=str(e)
+            ))
             return False
     
     def stop(self):
@@ -112,10 +125,14 @@ class VideoRecorder:
             duration = (datetime.utcnow() - self.start_time).total_seconds()
             file_size = os.path.getsize(self.output_path) / (1024 * 1024)  # MB
             
-            logger.info(
-                f"Recording stopped: {self.output_path} "
-                f"({self.frame_count} frames, {duration:.1f}s, {file_size:.2f}MB)"
-            )
+            logger.info(format_log(
+                "Recording stopped",
+                event="recording.stop",
+                file_path=self.output_path,
+                frame_count=self.frame_count,
+                duration_seconds=round(duration, 1),
+                file_size_mb=round(file_size, 2)
+            ))
     
     def __del__(self):
         """Ensure video writer is released."""
@@ -155,10 +172,13 @@ class RecordingManager:
         self.last_detection_times: dict[str, datetime] = {}
         self.recording_metadata: dict[str, dict] = {}  # Store metadata for DB insertion
         
-        logger.info(
-            f"RecordingManager initialized: {recordings_dir} "
-            f"(retention: {retention_days} days, grace: {grace_period_seconds}s)"
-        )
+        logger.info(format_log(
+            "RecordingManager initialized",
+            event="recording.init",
+            recordings_dir=str(self.recordings_dir),
+            retention_days=retention_days,
+            grace_period_seconds=grace_period_seconds
+        ))
     
     def start_recording(
         self,
@@ -202,7 +222,13 @@ class RecordingManager:
                 'detection_data': detection_data
             }
             
-            logger.info(f"Recording started for session {session_id}: {output_path}")
+            logger.info(format_log(
+                "Recording started for session",
+                event="recording.start",
+                session_id=session_id,
+                stream_session_id=stream_session_id,
+                file_path=output_path
+            ))
             
             # Save metadata file
             self._save_metadata(session_id, detection_data)
@@ -210,7 +236,14 @@ class RecordingManager:
             return output_path
             
         except Exception as e:
-            logger.error(f"Failed to start recording for session {session_id}: {e}")
+            logger.error(format_log(
+                "Failed to start recording",
+                event="recording.start",
+                status="error",
+                session_id=session_id,
+                stream_session_id=stream_session_id,
+                error=str(e)
+            ))
             raise
     
     def add_frame(self, session_id: str, frame_bytes: bytes) -> bool:
@@ -293,7 +326,14 @@ class RecordingManager:
         if os.path.exists(output_path):
             file_size_mb = os.path.getsize(output_path) / (1024 * 1024)
         
-        logger.info(f"Recording stopped for session {session_id}: {output_path}")
+        logger.info(format_log(
+            "Recording stopped for session",
+            event="recording.stop",
+            session_id=session_id,
+            file_path=output_path,
+            file_size_mb=round(file_size_mb, 2),
+            frame_count=recorder.frame_count
+        ))
         
         # Create Clip database record if DB session provided
         clip_id = None
@@ -321,10 +361,27 @@ class RecordingManager:
                 await db.refresh(clip)
                 
                 clip_id = clip.id
-                logger.info(f"Created Clip record in database: {clip_id}")
+                logger.info(format_log(
+                    "Clip record created",
+                    event="clip.create",
+                    clip_id=clip_id,
+                    session_id=session_id,
+                    stream_session_id=metadata['stream_session_id'],
+                    file_path=output_path,
+                    file_size_mb=round(file_size_mb, 2),
+                    frame_count=recorder.frame_count
+                ))
                 
             except Exception as e:
-                logger.error(f"Failed to create Clip database record: {e}", exc_info=True)
+                logger.error(format_log(
+                    "Failed to create clip record",
+                    event="clip.create",
+                    status="error",
+                    session_id=session_id,
+                    stream_session_id=metadata.get('stream_session_id') if metadata else None,
+                    file_path=output_path,
+                    error=str(e)
+                ), exc_info=True)
                 await db.rollback()
         
         return {
@@ -358,7 +415,14 @@ class RecordingManager:
                             'detection_data': detection_data
                         }, f, indent=2)
                 except Exception as e:
-                    logger.error(f"Failed to save metadata: {e}")
+                    logger.error(format_log(
+                        "Failed to save recording metadata",
+                        event="recording.metadata",
+                        status="error",
+                        session_id=session_id,
+                        file_path=metadata_path,
+                        error=str(e)
+                    ))
     
     async def cleanup_old_recordings(self):
         """
@@ -366,7 +430,11 @@ class RecordingManager:
         
         Runs as a background task.
         """
-        logger.info("Starting recording cleanup task")
+        logger.info(format_log(
+            "Recording cleanup task started",
+            event="recording.cleanup",
+            retention_days=self.retention_days
+        ))
         
         while True:
             try:
@@ -393,19 +461,38 @@ class RecordingManager:
                             if metadata_path.exists():
                                 metadata_path.unlink()
                             
-                            logger.info(
-                                f"Deleted old recording: {file_path.name} "
-                                f"({file_size:.2f}MB, age: {(datetime.utcnow() - mtime).days} days)"
-                            )
+                            logger.info(format_log(
+                                "Deleted old recording",
+                                event="recording.cleanup",
+                                status="deleted",
+                                file_path=file_path.name,
+                                file_size_mb=round(file_size, 2),
+                                age_days=(datetime.utcnow() - mtime).days
+                            ))
                     
                     except Exception as e:
-                        logger.error(f"Error deleting {file_path}: {e}")
+                        logger.error(format_log(
+                            "Failed to delete recording",
+                            event="recording.cleanup",
+                            status="error",
+                            file_path=file_path.name,
+                            error=str(e)
+                        ))
                 
                 if deleted_count > 0:
-                    logger.info(f"Cleanup complete: {deleted_count} recordings deleted")
+                    logger.info(format_log(
+                        "Recording cleanup completed",
+                        event="recording.cleanup",
+                        deleted_count=deleted_count
+                    ))
                 
             except Exception as e:
-                logger.error(f"Cleanup task error: {e}", exc_info=True)
+                logger.error(format_log(
+                    "Recording cleanup task error",
+                    event="recording.cleanup",
+                    status="error",
+                    error=str(e)
+                ), exc_info=True)
 
 
 # Global recording manager instance

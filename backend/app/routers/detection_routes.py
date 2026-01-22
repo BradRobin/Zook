@@ -16,6 +16,7 @@ from ..auth import verify_session
 from ..schemas import DetectionResponse, ThreatDetection as ThreatDetectionSchema, BoundingBox
 from ..services import get_detector
 from ..demo_mode import is_demo_mode_request, mask_uuid_str
+from ..logging_utils import format_log
 
 logger = logging.getLogger(__name__)
 
@@ -105,7 +106,13 @@ async def detect_threats(
     # Verify session is active
     session = await verify_session(token, db)
     if not session:
-        logger.warning("Detection attempted with invalid/expired session")
+        client_ip = request.client.host if request.client else "unknown"
+        logger.warning(format_log(
+            "Detection rejected: invalid session",
+            event="detection.request",
+            status="unauthorized",
+            ip=client_ip
+        ))
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or expired session",
@@ -114,11 +121,25 @@ async def detect_threats(
     
     demo_mode = is_demo_mode_request(request)
     log_user_id = mask_uuid_str(session.user_id) if demo_mode else str(session.user_id)
-    logger.info(f"Detection request from user {log_user_id}")
+    log_session_id = mask_uuid_str(session.id) if demo_mode else str(session.id)
+    client_ip = request.client.host if request.client else "unknown"
+    logger.info(format_log(
+        "Detection request received",
+        event="detection.request",
+        status="accepted",
+        ip=client_ip,
+        user_id=log_user_id,
+        session_id=log_session_id
+    ))
     
     # Validate image file
     if not image.content_type or not image.content_type.startswith('image/'):
-        logger.warning(f"Invalid content type: {image.content_type}")
+        logger.warning(format_log(
+            "Detection rejected: invalid content type",
+            event="detection.request",
+            status="invalid",
+            content_type=image.content_type
+        ))
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invalid file type. Expected image file (JPEG recommended)."
@@ -140,12 +161,22 @@ async def detect_threats(
                 detail="Image file too large (max 10MB)"
             )
         
-        logger.debug(f"Image received: {len(image_bytes)} bytes, type: {image.content_type}")
+        logger.debug(format_log(
+            "Detection image received",
+            event="detection.request",
+            size_bytes=len(image_bytes),
+            content_type=image.content_type
+        ))
         
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Failed to read image file: {e}")
+        logger.error(format_log(
+            "Detection failed to read image",
+            event="detection.request",
+            status="error",
+            error=str(e)
+        ))
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Failed to read image file"
@@ -155,7 +186,12 @@ async def detect_threats(
     try:
         detector = get_detector()
     except Exception as e:
-        logger.error(f"Failed to get detector instance: {e}", exc_info=True)
+        logger.error(format_log(
+            "Detection service unavailable",
+            event="detection.request",
+            status="error",
+            error=str(e)
+        ), exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Detection service unavailable"
@@ -192,29 +228,59 @@ async def detect_threats(
         )
         
         if threats:
-            logger.warning(f"THREAT DETECTED: {len(threats)} knife(s) found")
+            logger.warning(format_log(
+                "Threat detected",
+                event="detection.result",
+                status="threat",
+                threat_count=len(threats),
+                processing_time_ms=round(processing_time, 2),
+                user_id=log_user_id,
+                session_id=log_session_id
+            ))
         else:
-            logger.debug("No threats detected in frame")
+            logger.debug(format_log(
+                "No threats detected",
+                event="detection.result",
+                status="clear",
+                processing_time_ms=round(processing_time, 2),
+                user_id=log_user_id,
+                session_id=log_session_id
+            ))
         
         return response
         
     except ValueError as e:
         # Image processing errors
-        logger.error(f"Image processing error: {e}")
+        logger.error(format_log(
+            "Image processing error",
+            event="detection.result",
+            status="error",
+            error=str(e)
+        ))
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Invalid image data: {str(e)}"
         )
     except RuntimeError as e:
         # Model inference errors
-        logger.error(f"Model inference error: {e}", exc_info=True)
+        logger.error(format_log(
+            "Model inference error",
+            event="detection.result",
+            status="error",
+            error=str(e)
+        ), exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Detection failed. Please try again."
         )
     except Exception as e:
         # Unexpected errors
-        logger.error(f"Unexpected error during detection: {e}", exc_info=True)
+        logger.error(format_log(
+            "Unexpected detection error",
+            event="detection.result",
+            status="error",
+            error=str(e)
+        ), exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="An unexpected error occurred"
@@ -238,7 +304,12 @@ async def detection_health():
             "model_info": model_info
         }
     except Exception as e:
-        logger.error(f"Health check failed: {e}")
+        logger.error(format_log(
+            "Detection health check failed",
+            event="detection.health",
+            status="error",
+            error=str(e)
+        ))
         return {
             "status": "unhealthy",
             "service": "threat_detection",
@@ -287,14 +358,26 @@ async def update_detection_threshold(
         
         demo_mode = is_demo_mode_request(request)
         log_user_id = mask_uuid_str(session.user_id) if demo_mode else str(session.user_id)
-        logger.info(f"Detection threshold updated to {threshold} by user {log_user_id}")
+        logger.info(format_log(
+            "Detection threshold updated",
+            event="detection.threshold",
+            status="success",
+            user_id=log_user_id,
+            threshold=threshold
+        ))
         
         return {
             "message": "Threshold updated successfully",
             "new_threshold": threshold
         }
     except Exception as e:
-        logger.error(f"Failed to update threshold: {e}")
+        logger.error(format_log(
+            "Failed to update detection threshold",
+            event="detection.threshold",
+            status="error",
+            threshold=threshold,
+            error=str(e)
+        ))
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to update threshold"

@@ -25,6 +25,7 @@ from ..auth import (
 from ..config import settings
 from ..demo_mode import is_demo_mode_request, mask_username, mask_uuid
 from ..rate_limiter import limiter
+from ..logging_utils import format_log
 from ..metrics import record_login, record_token_refresh
 from ..services.token_blacklist import (
     get_token_blacklist, get_failed_login_tracker
@@ -112,9 +113,17 @@ async def login_user(
     # Get failed login tracker
     login_tracker = get_failed_login_tracker()
     
+    log_username = mask_username(user_data.username) if demo_mode else user_data.username
+
     # Check if IP is temporarily blocked
     if await login_tracker.is_ip_blocked(client_ip, threshold=10):
-        logger.warning(f"Blocked login attempt from {client_ip} (too many failures)")
+        logger.warning(format_log(
+            "Blocked login attempt",
+            event="auth.login",
+            status="blocked",
+            ip=client_ip,
+            username=log_username
+        ))
         record_login(False)
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
@@ -130,6 +139,14 @@ async def login_user(
     if not user:
         # Record failed attempt
         await login_tracker.record_failed_attempt(client_ip, user_data.username)
+        logger.warning(format_log(
+            "Login failed: user not found",
+            event="auth.login",
+            status="failure",
+            reason="user_not_found",
+            ip=client_ip,
+            username=log_username
+        ))
         record_login(False)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -140,6 +157,14 @@ async def login_user(
     if not verify_password(user_data.password, user.password_hash):
         # Record failed attempt
         await login_tracker.record_failed_attempt(client_ip, user_data.username)
+        logger.warning(format_log(
+            "Login failed: invalid password",
+            event="auth.login",
+            status="failure",
+            reason="invalid_password",
+            ip=client_ip,
+            username=log_username
+        ))
         record_login(False)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -194,8 +219,17 @@ async def login_user(
 
     record_login(True)
     
+    log_user_id = mask_uuid(user.id) if demo_mode else user.id
     log_username = mask_username(user.username) if demo_mode else user.username
-    logger.info(f"User {log_username} logged in from {client_ip}")
+    logger.info(format_log(
+        "User logged in",
+        event="auth.login",
+        status="success",
+        ip=client_ip,
+        user_id=log_user_id,
+        username=log_username,
+        session_id=session_id
+    ))
     
     response_session_id = mask_uuid(session_id) if demo_mode else session_id
     response_username = mask_username(user.username) if demo_mode else user.username
@@ -268,7 +302,12 @@ async def refresh_token(
     # Check if refresh token is blacklisted
     blacklist = get_token_blacklist()
     if await blacklist.is_blacklisted(token_data.refresh_token):
-        logger.warning("Attempted to use blacklisted refresh token")
+        logger.warning(format_log(
+            "Attempted to use blacklisted refresh token",
+            event="auth.refresh",
+            status="blocked",
+            ip=request.client.host if request.client else "unknown"
+        ))
         record_token_refresh(False)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -317,7 +356,13 @@ async def refresh_token(
     
     demo_mode = is_demo_mode_request(request)
     log_username = mask_username(user.username) if demo_mode else user.username
-    logger.info(f"Refreshed access token for user {log_username}")
+    logger.info(format_log(
+        "Refreshed access token",
+        event="auth.refresh",
+        status="success",
+        user_id=mask_uuid(user.id) if demo_mode else user.id,
+        username=log_username
+    ))
     
     return RefreshTokenResponse(
         access_token=access_token,
@@ -363,7 +408,14 @@ async def logout_user(
     
     demo_mode = is_demo_mode_request(request)
     log_username = mask_username(current_user.username) if demo_mode else current_user.username
-    logger.info(f"User {log_username} logged out")
+    logger.info(format_log(
+        "User logged out",
+        event="auth.logout",
+        status="success",
+        user_id=mask_uuid(current_user.id) if demo_mode else current_user.id,
+        username=log_username,
+        session_count=len(active_sessions)
+    ))
     return MessageResponse(message="Logged out successfully")
 
 
@@ -412,10 +464,15 @@ async def logout_all_devices(
     await db.commit()
     
     log_username = mask_username(current_user.username) if demo_mode else current_user.username
-    logger.info(
-        f"User {log_username} logged out from all devices "
-        f"({len(active_sessions)} sessions, {revoked_count} refresh tokens)"
-    )
+    logger.info(format_log(
+        "User logged out from all devices",
+        event="auth.logout_all",
+        status="success",
+        user_id=mask_uuid(current_user.id) if demo_mode else current_user.id,
+        username=log_username,
+        session_count=len(active_sessions),
+        revoked_refresh_tokens=revoked_count
+    ))
     
     return MessageResponse(
         message=f"Logged out from all devices. {revoked_count} refresh tokens revoked."

@@ -19,6 +19,7 @@ from apscheduler.triggers.interval import IntervalTrigger
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_, or_
 
+from ..logging_utils import format_log
 logger = logging.getLogger(__name__)
 
 
@@ -57,17 +58,22 @@ class CleanupScheduler:
         self.scheduler = AsyncIOScheduler()
         self._initialized = False
         
-        logger.info(
-            f"CleanupScheduler initialized: "
-            f"validation_age={validation_age_hours}h, "
-            f"interval={cleanup_interval_hours}h, "
-            f"batch_size={batch_size}"
-        )
+        logger.info(format_log(
+            "CleanupScheduler initialized",
+            event="cleanup.init",
+            validation_age_hours=validation_age_hours,
+            cleanup_interval_hours=cleanup_interval_hours,
+            batch_size=batch_size
+        ))
     
     def start(self):
         """Start the scheduler."""
         if self._initialized:
-            logger.warning("Scheduler already started")
+            logger.warning(format_log(
+                "Cleanup scheduler already started",
+                event="cleanup.scheduler",
+                status="already_started"
+            ))
             return
         
         # Add cleanup job
@@ -91,13 +97,21 @@ class CleanupScheduler:
         
         self.scheduler.start()
         self._initialized = True
-        logger.info("CleanupScheduler started")
+        logger.info(format_log(
+            "CleanupScheduler started",
+            event="cleanup.scheduler",
+            status="started"
+        ))
     
     def stop(self):
         """Stop the scheduler."""
         if self.scheduler.running:
             self.scheduler.shutdown(wait=False)
-            logger.info("CleanupScheduler stopped")
+            logger.info(format_log(
+                "CleanupScheduler stopped",
+                event="cleanup.scheduler",
+                status="stopped"
+            ))
     
     async def run_cleanup(self):
         """
@@ -109,9 +123,13 @@ class CleanupScheduler:
         3. Delete false positives
         4. Delete empty sessions
         """
-        logger.info("=" * 60)
-        logger.info("Starting scheduled cleanup task")
-        logger.info("=" * 60)
+        logger.info(format_log(
+            "Cleanup task started",
+            event="cleanup.run",
+            validation_age_hours=self.validation_age_hours,
+            cleanup_interval_hours=self.cleanup_interval_hours,
+            batch_size=self.batch_size
+        ))
         
         start_time = datetime.utcnow()
         stats = {
@@ -136,18 +154,25 @@ class CleanupScheduler:
             
             duration = (datetime.utcnow() - start_time).total_seconds()
             
-            logger.info("=" * 60)
-            logger.info("Cleanup task completed")
-            logger.info(f"Duration: {duration:.1f}s")
-            logger.info(f"Clips validated: {stats['clips_validated']}")
-            logger.info(f"Clips deleted (false positives): {stats['clips_deleted']}")
-            logger.info(f"Sessions deleted: {stats['sessions_deleted']}")
-            logger.info(f"Files deleted: {stats['files_deleted']}")
-            logger.info(f"Disk space freed: {stats['disk_freed_mb']:.2f} MB")
-            logger.info("=" * 60)
+            logger.info(format_log(
+                "Cleanup task completed",
+                event="cleanup.run",
+                status="success",
+                duration_seconds=round(duration, 1),
+                clips_validated=stats['clips_validated'],
+                clips_deleted=stats['clips_deleted'],
+                sessions_deleted=stats['sessions_deleted'],
+                files_deleted=stats['files_deleted'],
+                disk_freed_mb=round(stats['disk_freed_mb'], 2)
+            ))
             
         except Exception as e:
-            logger.error(f"Cleanup task failed: {e}", exc_info=True)
+            logger.error(format_log(
+                "Cleanup task failed",
+                event="cleanup.run",
+                status="error",
+                error=str(e)
+            ), exc_info=True)
     
     async def _validate_old_clips(self, db: AsyncSession, stats: dict):
         """
@@ -165,7 +190,12 @@ class CleanupScheduler:
         
         cutoff_time = datetime.utcnow() - timedelta(hours=self.validation_age_hours)
         
-        logger.info(f"Finding clips older than {cutoff_time}")
+        logger.info(format_log(
+            "Finding clips for validation",
+            event="cleanup.validate",
+            cutoff_time=cutoff_time.isoformat(),
+            batch_size=self.batch_size
+        ))
         
         # Query unvalidated clips older than threshold
         result = await db.execute(
@@ -182,10 +212,18 @@ class CleanupScheduler:
         clips = result.scalars().all()
         
         if not clips:
-            logger.info("No clips to validate")
+            logger.info(format_log(
+                "No clips to validate",
+                event="cleanup.validate",
+                status="empty"
+            ))
             return
         
-        logger.info(f"Validating {len(clips)} clip(s)")
+        logger.info(format_log(
+            "Validating clips",
+            event="cleanup.validate",
+            clip_count=len(clips)
+        ))
         
         # Get CLIP validator
         validator = get_clip_validator(device='cpu')
@@ -194,7 +232,13 @@ class CleanupScheduler:
         for clip in clips:
             try:
                 if not os.path.exists(clip.file_path):
-                    logger.warning(f"Clip file not found: {clip.file_path}, marking as validated")
+                    logger.warning(format_log(
+                        "Clip file not found, marking as validated",
+                        event="cleanup.validate",
+                        status="missing_file",
+                        clip_id=clip.id,
+                        file_path=clip.file_path
+                    ))
                     clip.is_validated = True
                     clip.validation_attempted_at = datetime.utcnow()
                     clip.deleted_at = datetime.utcnow()
@@ -215,10 +259,14 @@ class CleanupScheduler:
                 
                 # If confidence < 90%, mark as false positive and delete
                 if avg_confidence < 0.90:
-                    logger.info(
-                        f"False positive detected: Clip {clip.id} "
-                        f"(YOLO: {clip.yolo_confidence:.2%}, CLIP: {avg_confidence:.2%})"
-                    )
+                    logger.info(format_log(
+                        "False positive detected",
+                        event="cleanup.validate",
+                        status="false_positive",
+                        clip_id=clip.id,
+                        yolo_confidence=clip.yolo_confidence,
+                        clip_confidence=avg_confidence
+                    ))
                     
                     # Soft delete in database
                     clip.deleted_at = datetime.utcnow()
@@ -237,22 +285,51 @@ class CleanupScheduler:
                             os.remove(metadata_path)
                             stats['files_deleted'] += 1
                         
-                        logger.info(f"Deleted false positive file: {clip.file_path} ({file_size:.2f} MB)")
+                        logger.info(format_log(
+                            "Deleted false positive file",
+                            event="cleanup.validate",
+                            status="deleted",
+                            clip_id=clip.id,
+                            file_path=clip.file_path,
+                            file_size_mb=round(file_size, 2)
+                        ))
                     except Exception as e:
-                        logger.error(f"Failed to delete file {clip.file_path}: {e}")
+                        logger.error(format_log(
+                            "Failed to delete file",
+                            event="cleanup.validate",
+                            status="error",
+                            clip_id=clip.id,
+                            file_path=clip.file_path,
+                            error=str(e)
+                        ))
                 else:
-                    logger.info(
-                        f"Valid threat confirmed: Clip {clip.id} "
-                        f"(YOLO: {clip.yolo_confidence:.2%}, CLIP: {avg_confidence:.2%})"
-                    )
+                    logger.info(format_log(
+                        "Valid threat confirmed",
+                        event="cleanup.validate",
+                        status="confirmed",
+                        clip_id=clip.id,
+                        yolo_confidence=clip.yolo_confidence,
+                        clip_confidence=avg_confidence
+                    ))
                 
             except Exception as e:
-                logger.error(f"Error validating clip {clip.id}: {e}", exc_info=True)
+                logger.error(format_log(
+                    "Error validating clip",
+                    event="cleanup.validate",
+                    status="error",
+                    clip_id=clip.id,
+                    error=str(e)
+                ), exc_info=True)
                 clip.validation_attempted_at = datetime.utcnow()
         
         # Commit all updates
         await db.commit()
-        logger.info(f"Validated {stats['clips_validated']} clips, deleted {stats['clips_deleted']} false positives")
+        logger.info(format_log(
+            "Clip validation complete",
+            event="cleanup.validate",
+            clips_validated=stats['clips_validated'],
+            clips_deleted=stats['clips_deleted']
+        ))
     
     async def _cleanup_empty_sessions(self, db: AsyncSession, stats: dict):
         """
@@ -264,7 +341,11 @@ class CleanupScheduler:
         """
         from ..models import StreamSession, Clip
         
-        logger.info("Checking for empty sessions to delete")
+        logger.info(format_log(
+            "Checking for empty sessions to delete",
+            event="cleanup.sessions",
+            status="scan"
+        ))
         
         # Query all sessions
         result = await db.execute(
@@ -288,14 +369,23 @@ class CleanupScheduler:
             
             # If no valid clips, delete session
             if not valid_clips:
-                logger.info(f"Deleting empty session: {session.id}")
+                logger.info(format_log(
+                    "Deleting empty session",
+                    event="cleanup.sessions",
+                    status="deleted",
+                    session_id=session.id
+                ))
                 await db.delete(session)
                 stats['sessions_deleted'] += 1
         
         await db.commit()
         
         if stats['sessions_deleted'] > 0:
-            logger.info(f"Deleted {stats['sessions_deleted']} empty session(s)")
+            logger.info(format_log(
+                "Empty sessions deleted",
+                event="cleanup.sessions",
+                sessions_deleted=stats['sessions_deleted']
+            ))
     
     async def _cleanup_orphaned_files(self, stats: dict):
         """
@@ -304,7 +394,11 @@ class CleanupScheduler:
         Scans recordings directory and removes files older than retention period
         that aren't tracked in the database.
         """
-        logger.info("Checking for orphaned files")
+        logger.info(format_log(
+            "Checking for orphaned files",
+            event="cleanup.orphaned",
+            status="scan"
+        ))
         
         recordings_dir = Path("./recordings")
         if not recordings_dir.exists():
@@ -330,10 +424,22 @@ class CleanupScheduler:
                         metadata_path.unlink()
                         stats['files_deleted'] += 1
                     
-                    logger.info(f"Deleted old file: {file_path.name} ({file_size:.2f} MB)")
+                    logger.info(format_log(
+                        "Deleted old orphaned file",
+                        event="cleanup.orphaned",
+                        status="deleted",
+                        file_path=file_path.name,
+                        file_size_mb=round(file_size, 2)
+                    ))
             
             except Exception as e:
-                logger.error(f"Error cleaning up {file_path}: {e}")
+                logger.error(format_log(
+                    "Error cleaning up orphaned file",
+                    event="cleanup.orphaned",
+                    status="error",
+                    file_path=file_path.name,
+                    error=str(e)
+                ))
 
 
 # Global scheduler instance

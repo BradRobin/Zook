@@ -1,5 +1,16 @@
 // Zook MVP - Vanilla JavaScript Application Logic with WebSocket Streaming
 
+const zookLogger = window.ZookLogger;
+
+function logUiEvent(level, event, fields = {}, message = null) {
+    if (zookLogger && typeof zookLogger.log === 'function') {
+        zookLogger.log(level, event, fields, message);
+        return;
+    }
+    const handler = console[level] || console.log;
+    handler(message || event, fields || {});
+}
+
 /**
  * CameraStateManager - Manages visual states for camera permission and loading
  * 
@@ -117,7 +128,7 @@ class CameraStateManager {
         this.title.textContent = 'Requesting Camera Access...';
         this.message.innerHTML = 'Click <strong>"Allow"</strong> when your browser prompts you';
         
-        console.log('📷 Camera state: Requesting permission');
+        logUiEvent('log', 'camera.state', { state: 'requesting' }, 'Camera permission requested');
     }
     
     /**
@@ -153,7 +164,7 @@ class CameraStateManager {
             };
         }
         
-        console.log('❌ Camera state: Permission denied');
+        logUiEvent('warn', 'camera.state', { state: 'denied' }, 'Camera permission denied');
     }
     
     /**
@@ -182,7 +193,7 @@ class CameraStateManager {
             </span>
         `;
         
-        console.log('🤖 Camera state: Model initializing');
+        logUiEvent('log', 'camera.state', { state: 'initializing' }, 'Model initializing');
     }
     
     /**
@@ -205,7 +216,7 @@ class CameraStateManager {
         this.title.textContent = 'Connecting to Server...';
         this.message.textContent = 'Establishing secure connection';
         
-        console.log('🔌 Camera state: Connecting');
+        logUiEvent('log', 'camera.state', { state: 'connecting' }, 'Connecting to detection service');
     }
     
     /**
@@ -225,7 +236,7 @@ class CameraStateManager {
         this.title.textContent = 'Connected!';
         this.message.textContent = 'Live detection active';
         
-        console.log('✅ Camera state: Ready');
+        logUiEvent('log', 'camera.state', { state: 'ready' }, 'Camera ready');
         
         // Auto-hide after brief delay
         setTimeout(() => {
@@ -260,7 +271,7 @@ class CameraStateManager {
             };
         }
         
-        console.log('❌ Camera state: Error -', errorMessage);
+        logUiEvent('error', 'camera.state', { state: 'error', error: errorMessage }, 'Camera state error');
     }
     
     /**
@@ -280,7 +291,7 @@ class CameraStateManager {
         }, 300);
         
         this.currentState = 'hidden';
-        console.log('👁️ Camera state: Hidden (live feed visible)');
+        logUiEvent('log', 'camera.state', { state: 'hidden' }, 'Camera overlay hidden');
     }
     
     /**
@@ -331,14 +342,14 @@ class StreamingDetection {
         const wsUrl = this.apiUrl.replace('http://', 'ws://').replace('https://', 'wss://') 
                       + `/ws/stream?token=${this.authToken}${demoParam}`;
         
-        console.log('Connecting to WebSocket:', wsUrl);
+        logUiEvent('log', 'detection.websocket', { status: 'connecting', ws_url: wsUrl }, 'Connecting to WebSocket');
         
         return new Promise((resolve, reject) => {
             try {
                 this.websocket = new WebSocket(wsUrl);
                 
                 this.websocket.onopen = () => {
-                    console.log('✅ WebSocket connected');
+                    logUiEvent('log', 'detection.websocket', { status: 'connected' }, 'WebSocket connected');
                     resolve();
                 };
                 
@@ -347,7 +358,7 @@ class StreamingDetection {
                 };
                 
                 this.websocket.onerror = (error) => {
-                    console.error('❌ WebSocket error:', error);
+                    logUiEvent('error', 'detection.websocket', { status: 'error', error: error.message }, 'WebSocket error');
                     if (this.onError) {
                         this.onError('WebSocket connection error');
                     }
@@ -355,7 +366,11 @@ class StreamingDetection {
                 };
                 
                 this.websocket.onclose = (event) => {
-                    console.log('WebSocket closed:', event.code, event.reason);
+                    logUiEvent('warn', 'detection.websocket', {
+                        status: 'closed',
+                        code: event.code,
+                        reason: event.reason
+                    }, 'WebSocket closed');
                     this.isStreaming = false;
                     
                     if (this.onClose) {
@@ -370,7 +385,7 @@ class StreamingDetection {
                 };
                 
             } catch (error) {
-                console.error('Failed to create WebSocket:', error);
+                logUiEvent('error', 'detection.websocket', { status: 'error', error: error.message }, 'Failed to create WebSocket');
                 reject(error);
             }
         });
@@ -382,7 +397,10 @@ class StreamingDetection {
             
             // Welcome message on connect
             if (message.type === 'connected') {
-                console.log('📩 Welcome:', message.message);
+                logUiEvent('log', 'detection.websocket', {
+                    status: 'welcome',
+                    session_id: message.session_id
+                }, message.message);
                 this.sessionId = message.session_id;
                 this.startStreaming();
                 return;
@@ -409,20 +427,25 @@ class StreamingDetection {
                 
                 // Handle threats
                 if (message.threats && message.threats.length > 0 && this.onDetection) {
+                    logUiEvent('warn', 'detection.threat', {
+                        threat_count: message.threats.length,
+                        session_id: this.sessionId,
+                        processing_time_ms: message.processing_time_ms
+                    }, 'Threats detected');
                     this.onDetection(message.threats, message);
                 }
             }
             
             // Error message
             if (message.error) {
-                console.error('Server error:', message.error);
+                logUiEvent('error', 'detection.websocket', { status: 'server_error', error: message.error }, 'Server error');
                 if (this.onError) {
                     this.onError(message.error);
                 }
             }
             
         } catch (error) {
-            console.error('Error parsing WebSocket message:', error);
+            logUiEvent('error', 'detection.websocket', { status: 'parse_error', error: error.message }, 'Error parsing WebSocket message');
         }
     }
     
@@ -430,7 +453,7 @@ class StreamingDetection {
         if (this.isStreaming) return;
         
         this.isStreaming = true;
-        console.log('🎬 Starting frame streaming at', this.targetFPS, 'FPS');
+        logUiEvent('log', 'detection.stream', { status: 'started', target_fps: this.targetFPS }, 'Starting frame streaming');
         this.streamFrames();
     }
     
@@ -469,7 +492,7 @@ class StreamingDetection {
     
     stopStreaming() {
         this.isStreaming = false;
-        console.log('⏸️ Streaming paused');
+        logUiEvent('log', 'detection.stream', { status: 'paused' }, 'Streaming paused');
     }
     
     disconnect() {
@@ -480,7 +503,7 @@ class StreamingDetection {
             this.websocket = null;
         }
         
-        console.log('🔌 WebSocket disconnected');
+        logUiEvent('log', 'detection.websocket', { status: 'disconnected' }, 'WebSocket disconnected');
     }
 }
 
@@ -508,19 +531,19 @@ class RESTDetection {
         this.onStatusUpdate = null;
         this.onClose = null;
         
-        console.log('RESTDetection initialized - 5 second intervals');
+        logUiEvent('log', 'detection.rest', { status: 'initialized', interval_ms: this.captureInterval }, 'REST detection initialized');
     }
     
     async start(videoElement) {
         if (this.isScanning) {
-            console.warn('RESTDetection already scanning');
+            logUiEvent('warn', 'detection.rest', { status: 'already_scanning' }, 'REST detection already scanning');
             return;
         }
         
         this.videoElement = videoElement;
         this.isScanning = true;
         
-        console.log('🎬 Starting REST API detection (5s intervals)');
+        logUiEvent('log', 'detection.rest', { status: 'started', interval_ms: this.captureInterval }, 'Starting REST detection');
         
         // Start interval for capturing and detecting
         this.intervalId = setInterval(() => {
@@ -533,7 +556,7 @@ class RESTDetection {
     
     async captureFrame() {
         if (!this.videoElement || this.videoElement.readyState !== this.videoElement.HAVE_ENOUGH_DATA) {
-            console.warn('Video not ready for capture');
+            logUiEvent('warn', 'detection.capture', { status: 'not_ready' }, 'Video not ready for capture');
             return null;
         }
         
@@ -591,24 +614,31 @@ class RESTDetection {
             // Capture frame
             const blob = await this.captureFrame();
             if (!blob) {
-                console.warn('No frame captured, skipping detection');
+                logUiEvent('warn', 'detection.capture', { status: 'empty_frame' }, 'No frame captured, skipping detection');
                 return;
             }
             
             this.frameCount++;
-            console.log(`📸 Frame ${this.frameCount} captured (${(blob.size / 1024).toFixed(1)}KB)`);
+            logUiEvent('log', 'detection.capture', {
+                status: 'captured',
+                frame_number: this.frameCount,
+                size_kb: (blob.size / 1024).toFixed(1)
+            }, 'Frame captured');
             
             // Send to detection API
             const result = await this.sendDetectionRequest(blob);
             
             const processingTime = performance.now() - startTime;
-            console.log(`✅ Detection complete in ${processingTime.toFixed(1)}ms`);
+            logUiEvent('log', 'detection.request', {
+                status: 'completed',
+                processing_time_ms: processingTime.toFixed(1)
+            }, 'Detection complete');
             
             // Handle detection response
             this.handleDetectionResponse(result, processingTime);
             
         } catch (error) {
-            console.error('Capture and detect error:', error);
+            logUiEvent('error', 'detection.request', { status: 'error', error: error.message }, 'Capture and detect error');
             // Continue scanning despite errors
         }
     }
@@ -640,7 +670,7 @@ class RESTDetection {
             );
             
             if (knives.length > 0) {
-                console.log(`🚨 KNIFE DETECTED! Count: ${knives.length}`);
+                logUiEvent('warn', 'detection.threat', { threat_count: knives.length }, 'Knife detected');
                 
                 if (this.onDetection) {
                     this.onDetection(knives, data);
@@ -653,14 +683,21 @@ class RESTDetection {
                 const timestamp = new Date().toLocaleTimeString();
                 knives.forEach(knife => {
                     const confidence = (knife.confidence * 100).toFixed(1);
-                    console.log(`[${timestamp}] KNIFE DETECTED! Confidence: ${confidence}%`);
+                    logUiEvent('warn', 'detection.threat', {
+                        threat_type: knife.type,
+                        confidence_percent: confidence,
+                        detected_at: timestamp
+                    }, 'Threat detected');
                 });
             } else if (data.threats.length > 0) {
                 // Threats detected but below 90% threshold
-                console.log(`⚠️ ${data.threats.length} threat(s) detected but below 90% confidence threshold`);
+                logUiEvent('warn', 'detection.result', {
+                    status: 'below_threshold',
+                    threat_count: data.threats.length
+                }, 'Threats detected below confidence threshold');
             }
         } else {
-            console.log('✓ No threats detected');
+            logUiEvent('log', 'detection.result', { status: 'clear' }, 'No threats detected');
         }
     }
     
@@ -677,7 +714,7 @@ class RESTDetection {
     }
     
     handleError(error) {
-        console.error('Detection error:', error);
+        logUiEvent('error', 'detection.error', { error: error.message }, 'Detection error');
         
         let errorMessage = `Detection error: ${error.message}`;
         
@@ -705,7 +742,7 @@ class RESTDetection {
         }
         
         this.isScanning = false;
-        console.log('⏹️ REST API detection stopped');
+        logUiEvent('log', 'detection.rest', { status: 'stopped' }, 'REST detection stopped');
         
         if (this.onClose) {
             this.onClose('Detection stopped');
@@ -734,7 +771,7 @@ class ZookApp {
         // Use provided API URL or auto-detect
         if (apiUrl) {
             this.apiUrl = apiUrl;
-            console.log('Using provided API URL:', this.apiUrl);
+            logUiEvent('log', 'config.api_url', { source: 'provided', api_url: this.apiUrl }, 'Using provided API URL');
         } else if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
             this.apiUrl = 'http://localhost:8000';
         } else {
@@ -746,7 +783,7 @@ class ZookApp {
             }
         }
         
-        console.log('Using API URL:', this.apiUrl);
+        logUiEvent('log', 'config.api_url', { source: 'resolved', api_url: this.apiUrl }, 'Using API URL');
         
         this.init();
     }
@@ -758,7 +795,7 @@ class ZookApp {
         
         // Listen for session expiry events (from TokenManager)
         window.addEventListener('zook:session-expired', () => {
-            console.log('Session expired, redirecting to login...');
+            logUiEvent('warn', 'auth.session', { status: 'expired' }, 'Session expired, redirecting to login');
             this.authToken = null;
             this.sessionId = null;
             this.showLoginModal();
@@ -881,10 +918,10 @@ class ZookApp {
         if (tokenManager && tokenManager.isAuthenticated()) {
             // Check if token needs refresh
             if (tokenManager.needsRefresh()) {
-                console.log('Access token expired, attempting refresh...');
+                logUiEvent('log', 'auth.token.refresh', { status: 'attempt' }, 'Access token expired, attempting refresh');
                 const refreshed = await tokenManager.refreshAccessToken();
                 if (!refreshed) {
-                    console.log('Token refresh failed, need to re-login');
+                    logUiEvent('warn', 'auth.token.refresh', { status: 'failed' }, 'Token refresh failed, need to re-login');
                     return;
                 }
             }
@@ -905,11 +942,11 @@ class ZookApp {
                 if (response.ok) {
                     this.authToken = token;
                     this.sessionId = sessionId;
-                    console.log('✓ Session restored from stored token');
+                    logUiEvent('log', 'auth.session', { status: 'restored' }, 'Session restored from stored token');
                     this.showDashboard();
                 } else if (response.status === 401 && tokenManager) {
                     // Try to refresh token
-                    console.log('Stored token invalid, attempting refresh...');
+                    logUiEvent('warn', 'auth.token.refresh', { status: 'attempt', reason: 'stored_token_invalid' }, 'Stored token invalid, attempting refresh');
                     const refreshed = await tokenManager.refreshAccessToken();
                     if (refreshed) {
                         this.authToken = tokenManager.getAccessToken();
@@ -922,7 +959,7 @@ class ZookApp {
                     this.clearStoredAuth();
                 }
             } catch (error) {
-                console.error('Token verification failed:', error);
+                logUiEvent('error', 'auth.token.verify', { status: 'error', error: error.message }, 'Token verification failed');
                 this.clearStoredAuth();
             }
         }
@@ -1037,15 +1074,19 @@ class ZookApp {
             localStorage.setItem('zook_auth_token', this.authToken);
             localStorage.setItem('zook_session_id', this.sessionId);
             
-            console.log('✓ Login successful:', this.maskDemoValue(data.username, 'username'));
-            console.log('  Access token expires in:', data.expires_in, 'seconds');
-            console.log('  Refresh token expires in:', data.refresh_expires_in, 'seconds');
+            logUiEvent('log', 'auth.login', {
+                status: 'success',
+                username: this.maskDemoValue(data.username, 'username'),
+                session_id: data.session_id,
+                access_expires_in: data.expires_in,
+                refresh_expires_in: data.refresh_expires_in
+            }, 'Login successful');
             
             this.hideLoginModal();
             this.showDashboard();
 
         } catch (error) {
-            console.error('Auth error:', error);
+            logUiEvent('error', 'auth.login', { status: 'error', error: error.message }, 'Auth error');
             
             // Map common errors to user-friendly messages
             let errorMessage = 'Authentication failed: ' + error.message;
@@ -1093,7 +1134,7 @@ class ZookApp {
             this.cameraState.showReady();
             
         } catch (error) {
-            console.error('Camera/connection error:', error);
+            logUiEvent('error', 'camera.connection', { status: 'error', error: error.message }, 'Camera/connection error');
             
             // Determine error type and show appropriate state
             if (error.name === 'NotAllowedError' || 
@@ -1150,7 +1191,11 @@ class ZookApp {
             // NotAllowedError = user denied permission
             // NotFoundError = no camera available
             // NotReadableError = camera in use by another app
-            console.error('Camera access error:', error.name, error.message);
+            logUiEvent('error', 'camera.access', {
+                status: 'error',
+                name: error.name,
+                error: error.message
+            }, 'Camera access error');
             throw error;
         }
     }
@@ -1203,7 +1248,7 @@ class ZookApp {
                 document.getElementById('stream-status')?.classList.remove('hidden');
                 
             } catch (error) {
-                console.error('Failed to start REST detection:', error);
+                logUiEvent('error', 'detection.rest', { status: 'error', error: error.message }, 'Failed to start REST detection');
                 this.addLogEntry('Failed to start detection service', 'error');
                 this.isScanning = false;
                 document.getElementById('pause-btn').textContent = 'Resume Scan';
@@ -1253,7 +1298,7 @@ class ZookApp {
                 document.getElementById('stream-status')?.classList.remove('hidden');
                 
             } catch (error) {
-                console.error('Failed to start streaming:', error);
+                logUiEvent('error', 'detection.stream', { status: 'error', error: error.message }, 'Failed to start streaming');
                 this.addLogEntry('Failed to connect to detection service', 'error');
                 this.isScanning = false;
                 document.getElementById('pause-btn').textContent = 'Resume Scan';
@@ -1329,7 +1374,9 @@ class ZookApp {
             
             // Log processing time if available
             if (data && data.processing_time_ms) {
-                console.log(`Processing time: ${data.processing_time_ms.toFixed(1)}ms`);
+                logUiEvent('log', 'detection.processing', {
+                    processing_time_ms: data.processing_time_ms.toFixed(1)
+                }, 'Detection processing time');
             }
             
             // Trigger visual alert
@@ -1412,7 +1459,7 @@ class ZookApp {
             this.displaySearchResults(data);
             
         } catch (error) {
-            console.error('Search error:', error);
+            logUiEvent('error', 'search.request', { status: 'error', error: error.message }, 'Search error');
             resultsContainer.innerHTML = '<div class="search-error">Search failed. Please try again.</div>';
         } finally {
             if (searchButton) {
@@ -1486,7 +1533,7 @@ class ZookApp {
             window.URL.revokeObjectURL(url);
             this.addLogEntry('Data export complete', 'info');
         } catch (error) {
-            console.error('Data export error:', error);
+            logUiEvent('error', 'privacy.export', { status: 'error', error: error.message }, 'Data export error');
             this.addLogEntry('Data export failed - feature not yet implemented', 'error');
         }
     }
@@ -1510,7 +1557,7 @@ class ZookApp {
                 throw new Error('Account deletion failed');
             }
         } catch (error) {
-            console.error('Account deletion error:', error);
+            logUiEvent('error', 'account.delete', { status: 'error', error: error.message }, 'Account deletion error');
             this.addLogEntry('Account deletion failed - feature not yet implemented', 'error');
         }
     }
@@ -1547,9 +1594,9 @@ document.addEventListener('DOMContentLoaded', () => {
     const apiUrl = window.ZookConfig ? window.ZookConfig.API_URL : 'http://localhost:8000';
     
     if (window.ZookConfig) {
-        console.log('✓ Using ZookConfig:', window.ZookConfig.API_URL);
+        logUiEvent('log', 'config.load', { status: 'loaded', api_url: window.ZookConfig.API_URL }, 'Using ZookConfig');
     } else {
-        console.warn('⚠️  ZookConfig not loaded, using default:', apiUrl);
+        logUiEvent('warn', 'config.load', { status: 'fallback', api_url: apiUrl }, 'ZookConfig not loaded');
     }
     
     window.zookApp = new ZookApp(apiUrl);
