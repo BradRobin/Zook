@@ -16,6 +16,16 @@ See **[QUICKSTART.md](QUICKSTART.md)** for 5-minute setup guide!
 - **Streaming**: MediaMTX (WebRTC/RTSP) - *planned*
 - **AI Detection**: YOLOv12/FastAPI - *in progress*
 
+```mermaid
+flowchart LR
+    Frontend["Frontend (Web UI)"] <-->|"REST/WebSocket"| Backend["Backend (FastAPI)"]
+    Backend -->|"Sessions, users"| Database["PostgreSQL DB"]
+    Backend -->|"Frames/clips"| YoloClip["YOLO/CLIP Inference"]
+    Frontend -->|"Camera stream"| MediaMTX["MediaMTX"]
+    Backend -->|"Stream validation"| MediaMTX
+    Backend -->|"Metrics/logs"| Monitoring["Monitoring/Logging"]
+```
+
 ## ✨ Features
 
 ### Current (v1.0)
