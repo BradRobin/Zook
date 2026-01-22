@@ -14,6 +14,21 @@ from slowapi.middleware import SlowAPIMiddleware
 
 from .config import settings
 
+
+def _redis_is_available(redis_url: str) -> bool:
+    try:
+        import redis
+        client = redis.Redis.from_url(
+            redis_url,
+            socket_connect_timeout=1,
+            socket_timeout=1
+        )
+        client.ping()
+        return True
+    except Exception as exc:
+        logger.warning(f"Redis unavailable for rate limiting: {exc}")
+        return False
+
 logger = logging.getLogger(__name__)
 
 
@@ -75,8 +90,11 @@ def create_rate_limiter() -> Limiter:
     # Determine storage backend
     storage_uri = None
     if settings.REDIS_ENABLED and settings.RATE_LIMIT_ENABLED:
-        storage_uri = settings.REDIS_URL
-        logger.info(f"Rate limiter using Redis storage: {settings.REDIS_URL}")
+        if _redis_is_available(settings.REDIS_URL):
+            storage_uri = settings.REDIS_URL
+            logger.info(f"Rate limiter using Redis storage: {settings.REDIS_URL}")
+        else:
+            logger.warning("Rate limiter falling back to in-memory storage")
     else:
         logger.info("Rate limiter using in-memory storage")
     

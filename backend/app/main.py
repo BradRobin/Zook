@@ -114,7 +114,7 @@ async def lifespan(app: FastAPI):
         logger.info("Initializing cleanup scheduler...")
         
         # Create DB session factory for scheduler
-        async def db_session_factory():
+        def db_session_factory():
             return AsyncSessionLocal()
         
         cleanup_scheduler = get_cleanup_scheduler(db_session_factory)
