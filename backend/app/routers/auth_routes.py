@@ -3,7 +3,7 @@ Authentication routes for user registration and login.
 
 Includes rate limiting for security and JWT refresh token support.
 """
-from fastapi import APIRouter, Depends, HTTPException, status, Request
+from fastapi import APIRouter, Depends, HTTPException, status, Request, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from datetime import datetime, timedelta
@@ -39,6 +39,7 @@ router = APIRouter(prefix="/api", tags=["authentication"])
 @limiter.limit(settings.RATE_LIMIT_REGISTER)
 async def register_user(
     request: Request,
+    response: Response,
     user_data: UserCreate,
     db: AsyncSession = Depends(get_db)
 ):
@@ -91,6 +92,7 @@ async def register_user(
 @limiter.limit(settings.RATE_LIMIT_LOGIN)
 async def login_user(
     request: Request,
+    response: Response,
     user_data: UserLogin,
     db: AsyncSession = Depends(get_db)
 ):
@@ -270,6 +272,7 @@ async def verify_token(
 @limiter.limit(settings.RATE_LIMIT_REFRESH)
 async def refresh_token(
     request: Request,
+    response: Response,
     token_data: RefreshTokenRequest,
     db: AsyncSession = Depends(get_db)
 ):
@@ -375,6 +378,7 @@ async def refresh_token(
 @limiter.limit("5/minute")
 async def logout_user(
     request: Request,
+    response: Response,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
@@ -423,6 +427,7 @@ async def logout_user(
 @limiter.limit("3/minute")
 async def logout_all_devices(
     request: Request,
+    response: Response,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
