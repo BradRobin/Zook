@@ -26,9 +26,9 @@ security = HTTPBearer()
 
 @router.post("/detect", response_model=DetectionResponse)
 async def detect_threats(
+    request: Request,
     image: UploadFile = File(..., description="JPEG image frame from video stream"),
     credentials: HTTPAuthorizationCredentials = Depends(security),
-    request: Request,
     db: AsyncSession = Depends(get_db)
 ):
     """
@@ -319,9 +319,9 @@ async def detection_health():
 
 @router.post("/detect/threshold")
 async def update_detection_threshold(
+    request: Request,
     threshold: float,
     credentials: HTTPAuthorizationCredentials = Depends(security),
-    request: Request,
     db: AsyncSession = Depends(get_db)
 ):
     """

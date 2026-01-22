@@ -18,9 +18,9 @@ router = APIRouter(prefix="/api/stream", tags=["streaming"])
 @router.post("/validate", response_model=StreamValidationResponse)
 async def validate_stream_access(
     stream_request: StreamValidationRequest,
+    request: Request,
     authorization: Optional[str] = Header(None),
     token: Optional[str] = None,  # Query parameter fallback
-    request: Request,
     db: AsyncSession = Depends(get_db)
 ):
     """
